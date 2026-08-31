@@ -1,33 +1,39 @@
 # AED-DC Engine
 ### Autonomous Ephemeral Deception & Deterministic Containment
 
-AED-DC, kurumsal ağ ve sistem altyapılarında iç ağ keşiflerini, port taramalarını ve yatay yayılım (lateral movement) girişimlerini tespit edip engelleyen otonom bir güvenlik otomasyonudur.
+AED-DC, kurumsal ağ ve sistem altyapılarında iç ağ keşiflerini, port taramalarını ve yetkisiz yatay yayılım (lateral movement) girişimlerini tespit edip engelleyen otonom bir güvenlik ve aldatma otomasyonudur.
 
 ---
 
-## Nasıl Çalışır?
-1. **Sanal Kör Nokta (Decoy IP):** Ağdaki boş IP adreslerini pasif olarak dinler. Bu adreslerde meşru bir iş yükü bulunmadığından yapılan tüm istekler kesin bir anomali kabul edilir.
-2. **Deterministik Tespit:** BPF (Berkeley Packet Filter) mekanizması ile CPU tüketmeden gelen ilk bağlantı paketlerini (TCP SYN) yakalar.
-3. **Çekirdek Düzeyinde Tecrit:** Tespit anında analist onayına gerek kalmadan Linux çekirdeğindeki `nftables` tablosuna kural yazarak saldırganı ağ seviyesinde tecrit eder.
-4. **Hizmet Sürekliliği:** Beyaz liste (whitelist) mekanizması sayesinde ağ geçidi ve kritik sunucuların yanlışlıkla engellenmesini önler.
+## Temel Yetenekler
+- **Sanal Kör Nokta (Decoy IP):** Ağdaki boş IP havuzunu pasif olarak izler; sıfır yanlış pozitif (zero false-positive) ile çalışır.
+- **Çoklu Protokol Aldatması (Multi-Protocol Trapping):**
+  - **Sahte HTTP (Port 80):** Saldırgana rastgele Apache, Nginx veya LiteSpeed başlıkları dönerek User-Agent ve hedef URL verilerini toplar.
+  - **Sahte SSH (Port 22):** Gerçek SSH servisini yerel IP'ye kilitler; tuzak IP'de saldırganın SSH istemci sürümünü yakalar.
+- **Deterministik Çekirdek Tecriti:** Tehdit algılandığında insan müdahalesine gerek duymadan Linux çekirdeğindeki `nftables` tablosuna milisaniyeler içinde kural yazarak saldırganı ağ seviyesinde izole eder.
+- **Adli Telemetri (Forensic Logging):** Saldırganın kullandığı araçları, zaman damgalarını ve denediği portları yapılandırılmış JSON formatında saklar.
+- **Beyaz Liste Koruması:** Ağ geçidi ve kritik sunucuların yanlışlıkla engellenmesini önler.
 
 ---
 
-## Modüler Yapı
-- `core/`: Çekirdek paket dinleme ve kural yürütme motoru.
-- `containment/`: Linux `nftables` tabanlı deterministik izolasyon sürücüsü.
-- `traps/`: Dinamik servis yanıltma ve banner mutasyon katmanı.
-- `config/`: IP havuzu, hedef portlar ve beyaz liste tanımları.
-- `logs/`: Yapılandırılmış JSON formatında adli olay kayıtları.
+## Proje Mimarisi
+- `core/`: Çekirdek BPF ağ dinleyicisi ve olay yürütme motoru (`engine.py`).
+- `containment/`: Linux `nftables` tabanlı deterministik izolasyon sürücüsü (`blocker.py`).
+- `traps/`: 
+  - `service_mock.py`: Asenkron sahte HTTP 80 sunucusu ve delil toplayıcı.
+  - `ssh_mock.py`: Asenkron sahte SSH 22 sunucusu ve istemci başlık yakalayıcı.
+  - `mutator.py`: Dinamik HTTP ve SSH servis başlığı (banner) mutasyon motoru.
+- `config/`: IP havuzu, hedef portlar ve beyaz liste tanımları (`config.yaml`).
+- `logs/`: Yapılandırılmış JSON adli olay kayıtları (`detections.json`).
+- `main.py`: Çekirdek dinleyici ile sahte servisleri eş zamanlı yöneten ana başlatıcı.
 
 ---
 
 ## Çalıştırma
 
 ```bash
-# Sanal ortamı aktif etme
+# 1. Sanal ortamı aktif edin
 source venv/bin/activate
 
-# Güvenlik motorunu başlatma (Root yetkisi gereklidir)
-sudo ./venv/bin/python core/engine.py
-
+# 2. Çoklu protokol güvenlik motorunu başlatın (Root yetkisi gerektirir)
+sudo ./venv/bin/python main.py
