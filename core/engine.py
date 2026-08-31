@@ -1,13 +1,13 @@
 import sys
 import os
 
-# Projenin ana kök dizinini Python'un arama yoluna (sys.path) ekliyoruz
+# Projenin ana kök dizinini Python arama yoluna ekliyoruz
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import yaml
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from scapy.all import sniff, IP, TCP
 from containment.blocker import NftablesContainment
 
@@ -23,7 +23,7 @@ class SecurityEngine:
         self.whitelist = set(self.config["whitelist"]["ips"])
         self.log_file = self.config["logging"]["log_file"]
 
-        # nftables izolasyon motoru başlatılıyor
+        # nftables izolasyon motoru
         self.blocker = NftablesContainment(
             table_name=self.config["containment"]["table_name"],
             chain_name=self.config["containment"]["chain_name"]
@@ -46,14 +46,19 @@ class SecurityEngine:
         dst_port = packet[TCP].dport
         tcp_flags = packet[TCP].flags
 
-        # Beyaz listedeki güvenli IP'leri atla
+        # Beyaz listedeki IP'leri atla
         if src_ip in self.whitelist:
             return
 
-        # Yalnızca tuzak IP'ye gelen SYN (ilk el sıkışma) paketini yakala
+        # Yalnızca tuzak IP'ye gelen SYN bağlantı denemeleri
         if tcp_flags == "S" and dst_ip in self.decoy_ips:
+            # 80 portuna gelen istekleri hemen düşürme; sahte web servisi delil toplasın
+            if dst_port == 80:
+                return
+
+            # Port 80 dışındaki diğer portlara yapılan taramaları doğrudan tecrit et
             incident = {
-                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "src_ip": src_ip,
                 "src_port": packet[TCP].sport,
                 "dst_ip": dst_ip,
@@ -61,11 +66,9 @@ class SecurityEngine:
                 "action": "AUTO_ISOLATED"
             }
             
-            # 1. Çekirdek seviyesinde anında izole et
             if self.config["containment"]["enabled"]:
                 self.blocker.isolate_ip(src_ip)
 
-            # 2. Adli kayıt JSON dosyasına yaz
             self._log_incident(incident)
 
     def start(self):

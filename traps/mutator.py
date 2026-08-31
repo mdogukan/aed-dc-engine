@@ -19,3 +19,11 @@ class ServiceMutator:
             f"Connection: close\r\n\r\n{body}"
         ).encode("utf-8")
 
+    @staticmethod
+    def get_ssh_banner():
+        ssh_versions = [
+            "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.6\r\n",
+            "SSH-2.0-OpenSSH_8.4p1 Debian-5+deb11u1\r\n",
+            "SSH-2.0-OpenSSH_7.4\r\n"
+        ]
+        return random.choice(ssh_versions).encode("utf-8")
