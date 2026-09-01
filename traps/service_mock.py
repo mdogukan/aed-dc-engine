@@ -8,7 +8,9 @@ import logging
 import json
 from datetime import datetime, timezone
 from traps.mutator import ServiceMutator
+from traps.honeytokens import HoneytokenGenerator
 from containment.blocker import NftablesContainment
+from database.db import IncidentDatabase
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - [%(levelname)s] - %(message)s")
 
@@ -18,6 +20,7 @@ class AsyncDecoyServer:
         self.target_decoy = target_decoy
         self.log_file = log_file
         self.blocker = NftablesContainment()
+        self.db = IncidentDatabase()
 
     def _log_forensic_data(self, client_ip, client_port, target_port, payload_type, details):
         forensic_entry = {
@@ -30,10 +33,19 @@ class AsyncDecoyServer:
             "forensics": details,
             "action": "INTERACTED_AND_ISOLATED"
         }
-        logging.warning(f"[ADLİ DELİL TOPLANDI] {client_ip} -> {payload_type} Port:{target_port} İstek: {details.get('first_line', '')}")
+        logging.warning(f"[ADLİ DELİL] {client_ip} -> HTTP:80 İstek: '{details.get('first_line', '')}' | Verilen Tuzak: {details.get('token_delivered', 'None')}")
         try:
             with open(self.log_file, "a") as f:
                 f.write(json.dumps(forensic_entry) + "\n")
+            self.db.add_incident(
+                src_ip=client_ip,
+                src_port=client_port,
+                dst_ip=self.target_decoy,
+                dst_port=target_port,
+                service_type=payload_type,
+                action="INTERACTED_AND_ISOLATED",
+                forensics=details
+            )
         except Exception as e:
             logging.error(f"Adli log hatası: {e}")
 
@@ -43,33 +55,58 @@ class AsyncDecoyServer:
         client_port = peername[1] if peername else 0
 
         try:
-            # Saldırgandan gelen HTTP verisini oku
             data = await asyncio.wait_for(reader.read(1024), timeout=3.0)
             decoded_data = data.decode('utf-8', errors='ignore')
             lines = decoded_data.split("\r\n")
             
             first_line = lines[0] if lines else "Empty Request"
+            parts = first_line.split()
+            requested_path = parts[1] if len(parts) > 1 else "/"
+
             user_agent = "Unknown"
             for line in lines:
                 if line.lower().startswith("user-agent:"):
                     user_agent = line.split(":", 1)[1].strip()
                     break
 
+            token_delivered = "MUTATED_GATEWAY_ERROR"
+            if any(key in requested_path.lower() for key in [".env", "config", "vault", "aws", "credentials"]):
+                body = HoneytokenGenerator.get_env_honeytoken()
+                response = (
+                    "HTTP/1.1 200 OK\r\n"
+                    "Server: Apache/2.4.52 (Ubuntu)\r\n"
+                    "Content-Type: text/plain\r\n"
+                    f"Content-Length: {len(body)}\r\n"
+                    "Connection: close\r\n\r\n"
+                    f"{body}"
+                ).encode("utf-8")
+                token_delivered = "ENV_CREDENTIALS_LEAKED"
+
+            elif "robots.txt" in requested_path.lower():
+                body = HoneytokenGenerator.get_robots_txt()
+                response = (
+                    "HTTP/1.1 200 OK\r\n"
+                    "Server: nginx/1.18.0 (Ubuntu)\r\n"
+                    "Content-Type: text/plain\r\n"
+                    f"Content-Length: {len(body)}\r\n"
+                    "Connection: close\r\n\r\n"
+                    f"{body}"
+                ).encode("utf-8")
+                token_delivered = "ROBOTS_DIRECTORY_TRAP"
+
+            else:
+                response = ServiceMutator.get_http_banner()
+
             details = {
                 "first_line": first_line,
+                "requested_path": requested_path,
                 "user_agent": user_agent,
-                "raw_request": decoded_data[:200]
+                "token_delivered": token_delivered
             }
 
-            # 1. Delili kaydet
             self._log_forensic_data(client_ip, client_port, 80, "HTTP", details)
-
-            # 2. Sahte sunucu başlığı ve HTTP yanıtı döndür
-            response = ServiceMutator.get_http_banner()
             writer.write(response)
             await writer.drain()
-
-            # 3. İletişim biter bitmez çekirdek seviyesinde izole et
             self.blocker.isolate_ip(client_ip)
 
         except asyncio.TimeoutError:

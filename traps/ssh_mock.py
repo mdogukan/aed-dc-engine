@@ -9,6 +9,7 @@ import json
 from datetime import datetime, timezone
 from traps.mutator import ServiceMutator
 from containment.blocker import NftablesContainment
+from database.db import IncidentDatabase
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - [%(levelname)s] - %(message)s")
 
@@ -18,6 +19,7 @@ class AsyncSSHDecoyServer:
         self.port = port
         self.log_file = log_file
         self.blocker = NftablesContainment()
+        self.db = IncidentDatabase()
 
     def _log_forensic_data(self, client_ip, client_port, details):
         forensic_entry = {
@@ -30,10 +32,20 @@ class AsyncSSHDecoyServer:
             "forensics": details,
             "action": "INTERACTED_AND_ISOLATED"
         }
-        logging.warning(f"[SSH ADLİ DELİL TOPLANDI] {client_ip} -> SSH Port:{self.port} İstemci: {details.get('client_banner', 'Unknown')}")
+        logging.warning(f"[SSH ADLİ DELİL] {client_ip} -> SSH Port:{self.port} İstemci: {details.get('client_banner', 'Unknown')}")
         try:
             with open(self.log_file, "a") as f:
                 f.write(json.dumps(forensic_entry) + "\n")
+            # SQLite veritabanına kaydet
+            self.db.add_incident(
+                src_ip=client_ip,
+                src_port=client_port,
+                dst_ip=self.bind_ip,
+                dst_port=self.port,
+                service_type="SSH",
+                action="INTERACTED_AND_ISOLATED",
+                forensics=details
+            )
         except Exception as e:
             logging.error(f"Adli log hatası: {e}")
 
@@ -43,12 +55,10 @@ class AsyncSSHDecoyServer:
         client_port = peername[1] if peername else 0
 
         try:
-            # 1. Saldırgana rastgele OpenSSH sunucu başlığı gönder
             ssh_banner = ServiceMutator.get_ssh_banner()
             writer.write(ssh_banner)
             await writer.drain()
 
-            # 2. Saldırganın SSH istemcisinin (Nmap, Hydra, OpenSSH) kimlik dizgisini oku
             data = await asyncio.wait_for(reader.read(512), timeout=3.0)
             client_banner = data.decode('utf-8', errors='ignore').strip()
 
@@ -57,10 +67,7 @@ class AsyncSSHDecoyServer:
                 "server_banner_sent": ssh_banner.decode('utf-8').strip()
             }
 
-            # 3. Delili kaydet
             self._log_forensic_data(client_ip, client_port, details)
-
-            # 4. Saldırganı çekirdek seviyesinde tecrit et
             self.blocker.isolate_ip(client_ip)
 
         except asyncio.TimeoutError:

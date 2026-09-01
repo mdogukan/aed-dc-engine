@@ -1,39 +1,47 @@
 # AED-DC Engine
 ### Autonomous Ephemeral Deception & Deterministic Containment
 
-AED-DC, kurumsal ağ ve sistem altyapılarında iç ağ keşiflerini, port taramalarını ve yetkisiz yatay yayılım (lateral movement) girişimlerini tespit edip engelleyen otonom bir güvenlik ve aldatma otomasyonudur.
+AED-DC, kurumsal ağ ve sistem altyapılarında iç ağ keşiflerini, port taramalarını ve yetkisiz yatay yayılım (lateral movement) girişimlerini tespit edip engelleyen otonom bir güvenlik, aldatma ve mikro-tecrit platformudur.
 
 ---
 
 ## Temel Yetenekler
-- **Sanal Kör Nokta (Decoy IP):** Ağdaki boş IP havuzunu pasif olarak izler; sıfır yanlış pozitif (zero false-positive) ile çalışır.
+
+- **Sanal Kör Nokta (Decoy IP):** Ağdaki boş IP havuzunu pasif olarak izler; üzerinde meşru iş yükü bulunmadığı için sıfır yanlış pozitif (zero false-positive) prensibiyle çalışır.
 - **Çoklu Protokol Aldatması (Multi-Protocol Trapping):**
-  - **Sahte HTTP (Port 80):** Saldırgana rastgele Apache, Nginx veya LiteSpeed başlıkları dönerek User-Agent ve hedef URL verilerini toplar.
-  - **Sahte SSH (Port 22):** Gerçek SSH servisini yerel IP'ye kilitler; tuzak IP'de saldırganın SSH istemci sürümünü yakalar.
-- **Deterministik Çekirdek Tecriti:** Tehdit algılandığında insan müdahalesine gerek duymadan Linux çekirdeğindeki `nftables` tablosuna milisaniyeler içinde kural yazarak saldırganı ağ seviyesinde izole eder.
-- **Adli Telemetri (Forensic Logging):** Saldırganın kullandığı araçları, zaman damgalarını ve denediği portları yapılandırılmış JSON formatında saklar.
-- **Beyaz Liste Koruması:** Ağ geçidi ve kritik sunucuların yanlışlıkla engellenmesini önler.
+  - **Sahte HTTP (Port 80):** Gelen isteklere dinamik sunucu başlıkları (Apache, Nginx, LiteSpeed) ile yanıt verir; `User-Agent`, istek yolu ve metod verilerini toplar.
+  - **Sahte SSH (Port 22):** Gerçek OpenSSH servisini yerel IP'ye kilitler; tuzak IP üzerinde standart Port 22'de sahte SSH banner'ı sunarak saldırganın istemci sürümünü yakalar.
+- **Dinamik Bal Jetonları (Honeytoken Injection) & Akıllı Rota:**
+  - `/.env`, `/config`, `/vault` gibi hassas yolları arayan saldırganlara dinamik sahte AWS anahtarları, PostgreSQL bağlantı dizgileri ve JWT şifreleri sunar.
+  - `/robots.txt` arayan saldırganlara sahte tuzak dizin rotaları iletir.
+- **Deterministik Çekirdek Tecriti:** Tehdit algılandığı an insan müdahalesine gerek duymadan Linux çekirdeğindeki `nftables` tablosuna `priority -100` ile `DROP` kuralı yazarak saldırganı ağ seviyesinde tecrit eder.
+- **İlişkisel Adli Veritabanı (SQLite):** Tüm saldırı olaylarını, zaman damgalarını, çalınan bal jetonlarını ve istemci detaylarını yapılandırılmış `incidents.db` veritabanında indeksli olarak saklar.
+- **RESTful Yönetim API'si (FastAPI):** Sistemin uzaktan yönetilmesini, olayların sorgulanmasını, istatistiklerin alınmasını ve çekirdekteki tecrit kurallarının yönetilmesini sağlayan Swagger UI (`/docs`) destekli modern API katmanı.
+- **Beyaz Liste (Whitelist) Koruması:** Ağ geçidi ve kritik sunucuların yanlışlıkla engellenmesini önler.
 
 ---
 
 ## Proje Mimarisi
-- `core/`: Çekirdek BPF ağ dinleyicisi ve olay yürütme motoru (`engine.py`).
-- `containment/`: Linux `nftables` tabanlı deterministik izolasyon sürücüsü (`blocker.py`).
-- `traps/`: 
-  - `service_mock.py`: Asenkron sahte HTTP 80 sunucusu ve delil toplayıcı.
-  - `ssh_mock.py`: Asenkron sahte SSH 22 sunucusu ve istemci başlık yakalayıcı.
-  - `mutator.py`: Dinamik HTTP ve SSH servis başlığı (banner) mutasyon motoru.
-- `config/`: IP havuzu, hedef portlar ve beyaz liste tanımları (`config.yaml`).
-- `logs/`: Yapılandırılmış JSON adli olay kayıtları (`detections.json`).
-- `main.py`: Çekirdek dinleyici ile sahte servisleri eş zamanlı yöneten ana başlatıcı.
 
----
-
-## Çalıştırma
-
-```bash
-# 1. Sanal ortamı aktif edin
-source venv/bin/activate
-
-# 2. Çoklu protokol güvenlik motorunu başlatın (Root yetkisi gerektirir)
-sudo ./venv/bin/python main.py
+```text
+aed-dc-engine/
+├── api/
+│   └── app.py              # FastAPI REST API ve Swagger UI yönetim sunucusu
+├── database/
+│   ├── __init__.py
+│   └── db.py               # SQLite ilişkisel adli olay veritabanı sürücüsü
+├── core/
+│   └── engine.py           # BPF tabanlı çekirdek paket dinleme ve olay motoru
+├── containment/
+│   └── blocker.py          # Linux nftables deterministik tecrit sürücüsü
+├── traps/
+│   ├── service_mock.py     # Asenkron sahte HTTP 80 sunucusu ve akıllı rota yöneticisi
+│   ├── ssh_mock.py         # Asenkron sahte SSH 22 sunucusu ve banner yakalayıcı
+│   ├── honeytokens.py      # Dinamik AWS/DB/JWT bal jetonu üretim fabrikası
+│   └── mutator.py          # Dinamik HTTP/SSH sunucu başlığı mutasyon motoru
+├── config/
+│   └── config.yaml         # IP havuzu, hedef portlar ve beyaz liste ayarları
+├── logs/
+│   └── detections.json     # JSON tabanlı adli olay kütüğü
+├── main.py                 # Çok iş parçacıklı entegre ana başlatıcı
+└── requirements.txt        # Python bağımlılıkları
