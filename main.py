@@ -1,4 +1,7 @@
 import threading
+from fastapi import WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse
+from api.ws_manager import live_broadcaster
 import asyncio
 import logging
 import uvicorn
@@ -6,6 +9,20 @@ from core.engine import SecurityEngine
 from traps.service_mock import AsyncDecoyServer
 from traps.ssh_mock import AsyncSSHDecoyServer
 from api.app import app
+
+@app.get("/", response_class=HTMLResponse)
+async def get_live_dashboard():
+    with open("api/panel.html", "r", encoding="utf-8") as f:
+        return f.read()
+
+@app.websocket("/ws/threats")
+async def websocket_threat_endpoint(websocket: WebSocket):
+    await live_broadcaster.register(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        live_broadcaster.unregister(websocket)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - [%(levelname)s] - %(message)s")
 

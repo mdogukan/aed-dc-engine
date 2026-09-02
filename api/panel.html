@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>AED-DC Engine | Canlı Güvenlik Paneli</title>
+    <style>
+        body { background: #0f172a; color: #e2e8f0; font-family: monospace; padding: 25px; margin: 0; }
+        h1 { color: #38bdf8; font-size: 22px; border-bottom: 2px solid #1e293b; padding-bottom: 12px; margin-top: 0; }
+        .badge-live { background: #065f46; color: #34d399; padding: 5px 10px; border-radius: 4px; font-weight: bold; display: inline-block; margin-bottom: 20px; }
+        .container { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; }
+        .card { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 16px; }
+        h3 { margin-top: 0; color: #94a3b8; font-size: 15px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { border-bottom: 1px solid #334155; padding: 10px; text-align: left; font-size: 13px; }
+        th { color: #64748b; background: #0f172a; }
+        .badge-drop { background: #991b1b; color: #fecaca; padding: 3px 8px; border-radius: 4px; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>AED-DC Engine - Otonom Tehdit İzleme & Tecrit Paneli</h1>
+    <div class="badge-live" id="conn-status">● Çekirdek Dinleyicisine Bağlanılıyor...</div>
+
+    <div class="container">
+        <div class="card">
+            <h3>Gerçek Zamanlı Saldırı Akışı (WebSocket)</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Zaman</th>
+                        <th>Saldırgan IP</th>
+                        <th>Hedef Port</th>
+                        <th>Protokol</th>
+                        <th>Tuzak / Eylem</th>
+                    </tr>
+                </thead>
+                <tbody id="attack-feed"></tbody>
+            </table>
+        </div>
+
+        <div class="card">
+            <h3>Dinamik nftables Tecrit Listesi</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Engellenen IP</th>
+                        <th>Kural</th>
+                    </tr>
+                </thead>
+                <tbody id="isolation-feed"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        const attackFeed = document.getElementById("attack-feed");
+        const isolationFeed = document.getElementById("isolation-feed");
+        const statusEl = document.getElementById("conn-status");
+        const trackedIps = new Set();
+
+        function addRow(log, isHistorical = false) {
+            const time = log.timestamp ? log.timestamp.split("T")[1]?.slice(0, 8) || log.timestamp : new Date().toLocaleTimeString();
+            
+            // Saldırı satırını ekle
+            const row = document.createElement("tr");
+            row.innerHTML = `
+                <td>${time}</td>
+                <td><strong style="color:#f87171;">${log.src_ip}</strong></td>
+                <td>${log.dst_port}</td>
+                <td>${log.service_type || log.protocol || 'TCP'}</td>
+                <td><span class="badge-drop">${log.action || 'INTERACTED_AND_ISOLATED'}</span></td>
+            `;
+
+            if (isHistorical) {
+                attackFeed.appendChild(row);
+            } else {
+                attackFeed.prepend(row);
+            }
+
+            // Tecrit tablosuna tekil IP ekle
+            if (!trackedIps.has(log.src_ip)) {
+                trackedIps.add(log.src_ip);
+                const isoRow = document.createElement("tr");
+                isoRow.innerHTML = `<td>${log.src_ip}</td><td><span class="badge-drop">DROP</span></td>`;
+                if (isHistorical) {
+                    isolationFeed.appendChild(isoRow);
+                } else {
+                    isolationFeed.prepend(isoRow);
+                }
+            }
+        }
+
+// 1. Sayfa açıldığında veritabanındaki kayıtları ve engelli listesini getir
+        async function fetchHistory() {
+            try {
+                // Geçmiş Olayları Çek
+                const res = await fetch('/api/incidents');
+                if (res.ok) {
+                    const records = await res.json();
+                    const list = Array.isArray(records) ? records : (records.incidents || records.data || []);
+                    list.slice(-15).reverse().forEach(log => addRow(log, true));
+                }
+
+                // Mevcut nftables Engellilerini Çek
+                const blockRes = await fetch('/api/containment/blocked');
+                if (blockRes.ok) {
+                    const blockData = await blockRes.json();
+                    const blockedList = Array.isArray(blockData) ? blockData : (blockData.blocked_ips || blockData.data || []);
+                    blockedList.forEach(ip => {
+                        if (!trackedIps.has(ip)) {
+                            trackedIps.add(ip);
+                            const isoRow = document.createElement("tr");
+                            isoRow.innerHTML = `<td>${ip}</td><td><span class="badge-drop">DROP</span></td>`;
+                            isolationFeed.appendChild(isoRow);
+                        }
+                    });
+                }
+            } catch (err) {
+                console.error("Geçmiş veriler yüklenemedi:", err);
+            }
+        }
+
+        fetchHistory();
+
+        // 2. Canlı yayın soketini başlat
+        const ws = new WebSocket(`ws://${location.host}/ws/threats`);
+
+        ws.onopen = () => {
+            statusEl.innerText = "● CANLI YAYIN AKTİF — Çekirdek Dinlemede";
+            statusEl.style.background = "#065f46";
+            statusEl.style.color = "#34d399";
+        };
+
+        ws.onclose = () => {
+            statusEl.innerText = "○ BAĞLANTI KESİLDİ";
+            statusEl.style.background = "#7f1d1d";
+            statusEl.style.color = "#fca5a5";
+        };
+
+        ws.onmessage = (event) => {
+            const log = JSON.parse(event.data);
+            addRow(log, false);
+        };
+    </script>
+</body>
+</html>

@@ -1,3 +1,6 @@
+import asyncio
+from api.ws_manager import live_broadcaster
+from alerts.notifier import notifier_engine
 import sys
 import os
 
@@ -108,6 +111,14 @@ class AsyncDecoyServer:
             writer.write(response)
             await writer.drain()
             self.blocker.isolate_ip(client_ip)
+            payload_data = {
+            "src_ip": client_ip,
+            "dst_port": 80,
+            "protocol": "HTTP",
+            "action": "INTERACTED_AND_ISOLATED"
+            }
+            asyncio.create_task(live_broadcaster.broadcast_event(payload_data))
+            asyncio.create_task(notifier_engine.broadcast_containment(client_ip, 80, "HTTP", "Sahte servis bal jetonu tetiklendi"))
 
         except asyncio.TimeoutError:
             pass
