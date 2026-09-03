@@ -2,144 +2,268 @@
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
-    <title>AED-DC Engine | Canlı Güvenlik Paneli</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AED-DC Engine - Otonom Tehdit İzleme & Tecrit Paneli</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        body { background: #0f172a; color: #e2e8f0; font-family: monospace; padding: 25px; margin: 0; }
-        h1 { color: #38bdf8; font-size: 22px; border-bottom: 2px solid #1e293b; padding-bottom: 12px; margin-top: 0; }
-        .badge-live { background: #065f46; color: #34d399; padding: 5px 10px; border-radius: 4px; font-weight: bold; display: inline-block; margin-bottom: 20px; }
-        .container { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; }
-        .card { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 16px; }
-        h3 { margin-top: 0; color: #94a3b8; font-size: 15px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th, td { border-bottom: 1px solid #334155; padding: 10px; text-align: left; font-size: 13px; }
-        th { color: #64748b; background: #0f172a; }
-        .badge-drop { background: #991b1b; color: #fecaca; padding: 3px 8px; border-radius: 4px; font-weight: bold; }
+        body { background-color: #0b1320; color: #c5d1de; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .card { background-color: #111c2d; border: 1px solid #1e2d42; border-radius: 8px; }
+        .table { color: #c5d1de; }
+        .table-dark { background-color: #111c2d; }
+        .table-hover tbody tr:hover { background-color: #1a293e; cursor: pointer; }
+        .badge-recon { background-color: #d97706; color: #fff; }
+        .badge-isolated { background-color: #dc2626; color: #fff; }
+        .badge-probe { background-color: #2563eb; color: #fff; }
+        .badge-unblocked { background-color: #10b981; color: #fff; }
+        .status-indicator { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background-color: #10b981; margin-right: 6px; }
+        .modal-content { background-color: #111c2d; color: #c5d1de; border: 1px solid #1e2d42; }
     </style>
 </head>
-<body>
-    <h1>AED-DC Engine - Otonom Tehdit İzleme & Tecrit Paneli</h1>
-    <div class="badge-live" id="conn-status">● Çekirdek Dinleyicisine Bağlanılıyor...</div>
+<body class="p-3">
 
-    <div class="container">
-        <div class="card">
-            <h3>Gerçek Zamanlı Saldırı Akışı (WebSocket)</h3>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Zaman</th>
-                        <th>Saldırgan IP</th>
-                        <th>Hedef Port</th>
-                        <th>Protokol</th>
-                        <th>Tuzak / Eylem</th>
-                    </tr>
-                </thead>
-                <tbody id="attack-feed"></tbody>
-            </table>
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h3 class="fw-bold mb-1 text-white">AED-DC Engine - Otonom Tehdit İzleme & Tecrit Paneli</h3>
+            <span class="badge bg-dark border border-secondary text-success" id="connBadge">
+                <span class="status-indicator"></span>OTONOM MOTOR AKTİF — Çekirdek Dinlemede
+            </span>
         </div>
-
-        <div class="card">
-            <h3>Dinamik nftables Tecrit Listesi</h3>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Engellenen IP</th>
-                        <th>Kural</th>
-                    </tr>
-                </thead>
-                <tbody id="isolation-feed"></tbody>
-            </table>
+        <div>
+            <a href="/api/export/json" class="btn btn-sm btn-outline-info me-2">⬇ JSON Raporu</a>
+            <a href="/api/export/csv" class="btn btn-sm btn-outline-info">⬇ CSV Raporu</a>
         </div>
     </div>
 
-    <script>
-        const attackFeed = document.getElementById("attack-feed");
-        const isolationFeed = document.getElementById("isolation-feed");
-        const statusEl = document.getElementById("conn-status");
-        const trackedIps = new Set();
+    <div class="row g-3">
+        <!-- SOL: Canlı Olay Akışı -->
+        <div class="col-lg-8">
+            <div class="card h-100">
+                <div class="card-header border-bottom border-secondary bg-transparent fw-semibold text-white">
+                    Gerçek Zamanlı Saldırı Akışı (Detay için satıra tıklayın)
+                </div>
+                <div class="table-responsive p-2">
+                    <table class="table table-dark table-hover mb-0" id="incidentsTable">
+                        <thead>
+                            <tr class="text-secondary small">
+                                <th>Zaman (Yerel)</th>
+                                <th>Saldırgan IP</th>
+                                <th>Hedef Port</th>
+                                <th>Protokol</th>
+                                <th>Eylem</th>
+                            </tr>
+                        </thead>
+                        <tbody id="incidentsBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
 
-        function addRow(log, isHistorical = false) {
-            const time = log.timestamp ? log.timestamp.split("T")[1]?.slice(0, 8) || log.timestamp : new Date().toLocaleTimeString();
+        <!-- SAĞ: Çekirdek Tecrit Listesi -->
+        <div class="col-lg-4">
+            <div class="card h-100">
+                <div class="card-header border-bottom border-secondary bg-transparent fw-semibold text-white">
+                    Dinamik nftables Tecrit Listesi (TTL Destekli)
+                </div>
+                <div class="table-responsive p-2">
+                    <table class="table table-dark mb-0">
+                        <thead>
+                            <tr class="text-secondary small">
+                                <th>Engellenen IP</th>
+                                <th>Kural</th>
+                                <th>İşlem</th>
+                            </tr>
+                        </thead>
+                        <tbody id="blockedBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Adli Detay -->
+<div class="modal fade" id="detailModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title">Adli Delil Analizi (Forensics)</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <pre id="modalForensics" class="bg-dark p-3 text-info rounded" style="max-height: 400px; overflow-y: auto;"></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    const incidentsBody = document.getElementById("incidentsBody");
+    const blockedBody = document.getElementById("blockedBody");
+    const detailModal = new bootstrap.Modal(document.getElementById('detailModal'));
+    const modalForensics = document.getElementById('modalForensics');
+
+    // Ekranda zaten gösterilen olayların ID kaydı (Çift eklemeyi ve titremeyi önler)
+    const renderedIncidentIds = new Set();
+
+    function getBadgeClass(action) {
+        if (!action) return 'bg-secondary';
+        if (action.includes('ISOLATED')) return 'badge-isolated';
+        if (action.includes('RECON')) return 'badge-recon';
+        if (action.includes('PROBE')) return 'badge-probe';
+        if (action.includes('UNBLOCKED')) return 'badge-unblocked';
+        return 'bg-secondary';
+    }
+
+    function formatLocalTime(isoStr) {
+        if (!isoStr) return new Date().toLocaleTimeString('tr-TR', { hour12: false });
+        try {
+            const s = (isoStr.endsWith('Z') || isoStr.includes('+')) ? isoStr : isoStr + 'Z';
+            const d = new Date(s);
+            return isNaN(d.getTime()) ? isoStr : d.toLocaleTimeString('tr-TR', { hour12: false });
+        } catch (e) {
+            return isoStr;
+        }
+    }
+
+    function createIncidentRow(item) {
+        const tr = document.createElement("tr");
+        const timeStr = formatLocalTime(item.timestamp);
+        tr.innerHTML = `
+            <td class="text-info">${timeStr}</td>
+            <td class="text-danger fw-semibold">${item.src_ip}</td>
+            <td>${item.dst_port || 0}</td>
+            <td>${item.protocol || item.service_type || 'TCP'}</td>
+            <td><span class="badge ${getBadgeClass(item.action)}">${item.action}</span></td>
+        `;
+        tr.onclick = () => {
+            modalForensics.textContent = JSON.stringify(item.forensics || {}, null, 2);
+            detailModal.show();
+        };
+        return tr;
+    }
+
+    function addBlockedRow(ip) {
+        if (!ip || ip === "0.0.0.0") return;
+        const rowId = `blocked-${ip.replace(/\./g, '-')}`;
+        if (document.getElementById(rowId)) return;
+
+        const tr = document.createElement("tr");
+        tr.id = rowId;
+        tr.setAttribute("data-ip", ip);
+        tr.innerHTML = `
+            <td class="text-danger fw-semibold">${ip}</td>
+            <td><span class="badge bg-danger">DROP</span></td>
+            <td><button class="btn btn-sm btn-danger py-0 px-2" onclick="unblockIP('${ip}')">Kaldır</button></td>
+        `;
+        blockedBody.appendChild(tr);
+    }
+
+    function removeBlockedRow(ip) {
+        const el = document.getElementById(`blocked-${ip.replace(/\./g, '-')}`);
+        if (el) el.remove();
+    }
+
+    // 1. SOL TABLO SENKRONİZASYONU (Sadece yeni gelenleri üste ekler, F5 gerektirmez)
+    async function syncIncidents() {
+        try {
+            const res = await fetch('/api/incidents');
+            const data = await res.json();
             
-            // Saldırı satırını ekle
-            const row = document.createElement("tr");
-            row.innerHTML = `
-                <td>${time}</td>
-                <td><strong style="color:#f87171;">${log.src_ip}</strong></td>
-                <td>${log.dst_port}</td>
-                <td>${log.service_type || log.protocol || 'TCP'}</td>
-                <td><span class="badge-drop">${log.action || 'INTERACTED_AND_ISOLATED'}</span></td>
-            `;
-
-            if (isHistorical) {
-                attackFeed.appendChild(row);
-            } else {
-                attackFeed.prepend(row);
-            }
-
-            // Tecrit tablosuna tekil IP ekle
-            if (!trackedIps.has(log.src_ip)) {
-                trackedIps.add(log.src_ip);
-                const isoRow = document.createElement("tr");
-                isoRow.innerHTML = `<td>${log.src_ip}</td><td><span class="badge-drop">DROP</span></td>`;
-                if (isHistorical) {
-                    isolationFeed.appendChild(isoRow);
-                } else {
-                    isolationFeed.prepend(isoRow);
+            // Yeni olayları kronolojik olarak ekle (API id DESC döner)
+            for (let i = data.length - 1; i >= 0; i--) {
+                const item = data[i];
+                const uniqueKey = item.id ? `id-${item.id}` : `${item.timestamp}-${item.src_ip}-${item.action}`;
+                
+                if (!renderedIncidentIds.has(uniqueKey)) {
+                    renderedIncidentIds.add(uniqueKey);
+                    const row = createIncidentRow(item);
+                    incidentsBody.insertBefore(row, incidentsBody.firstChild);
+                    if (incidentsBody.children.length > 60) {
+                        incidentsBody.removeChild(incidentsBody.lastChild);
+                    }
                 }
             }
+        } catch (e) {
+            console.error("Olay akışı senkron hatası:", e);
         }
+    }
 
-// 1. Sayfa açıldığında veritabanındaki kayıtları ve engelli listesini getir
-        async function fetchHistory() {
-            try {
-                // Geçmiş Olayları Çek
-                const res = await fetch('/api/incidents');
-                if (res.ok) {
-                    const records = await res.json();
-                    const list = Array.isArray(records) ? records : (records.incidents || records.data || []);
-                    list.slice(-15).reverse().forEach(log => addRow(log, true));
-                }
+    // 2. SAĞ TABLO SENKRONİZASYONU (Çekirdekteki IP'leri ve Kaldır butonunu anında eşitler)
+    async function syncBlockedList() {
+        try {
+            const res = await fetch('/api/blocked-ips');
+            const data = await res.json();
+            const serverIps = new Set(data.blocked_ips || []);
 
-                // Mevcut nftables Engellilerini Çek
-                const blockRes = await fetch('/api/containment/blocked');
-                if (blockRes.ok) {
-                    const blockData = await blockRes.json();
-                    const blockedList = Array.isArray(blockData) ? blockData : (blockData.blocked_ips || blockData.data || []);
-                    blockedList.forEach(ip => {
-                        if (!trackedIps.has(ip)) {
-                            trackedIps.add(ip);
-                            const isoRow = document.createElement("tr");
-                            isoRow.innerHTML = `<td>${ip}</td><td><span class="badge-drop">DROP</span></td>`;
-                            isolationFeed.appendChild(isoRow);
-                        }
-                    });
+            // Çekirdeğe yeni girenleri ekle
+            serverIps.forEach(ip => addBlockedRow(ip));
+
+            // Çekirdekten çıkanları tablodan temizle
+            blockedBody.querySelectorAll('tr').forEach(row => {
+                const rowIp = row.getAttribute('data-ip');
+                if (rowIp && !serverIps.has(rowIp)) {
+                    row.remove();
                 }
-            } catch (err) {
-                console.error("Geçmiş veriler yüklenemedi:", err);
-            }
+            });
+        } catch (e) {
+            console.error("Tecrit listesi senkron hatası:", e);
         }
+    }
 
-        fetchHistory();
+    async function unblockIP(ip) {
+        try {
+            removeBlockedRow(ip);
+            await fetch(`/api/unblock/${ip}`, { method: 'POST' });
+            setTimeout(syncBlockedList, 300);
+        } catch (e) {
+            console.error("Engel kaldırma hatası:", e);
+        }
+    }
 
-        // 2. Canlı yayın soketini başlat
-        const ws = new WebSocket(`ws://${location.host}/ws/threats`);
+    // 3. ANLIK WEBSOCKET (Milisaniyelik anlık tetikleme desteği)
+    function initWebSocket() {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const ws = new WebSocket(`${protocol}//${window.location.host}/ws/stream`);
 
         ws.onopen = () => {
-            statusEl.innerText = "● CANLI YAYIN AKTİF — Çekirdek Dinlemede";
-            statusEl.style.background = "#065f46";
-            statusEl.style.color = "#34d399";
-        };
-
-        ws.onclose = () => {
-            statusEl.innerText = "○ BAĞLANTI KESİLDİ";
-            statusEl.style.background = "#7f1d1d";
-            statusEl.style.color = "#fca5a5";
+            document.getElementById("connBadge").innerHTML = '<span class="status-indicator"></span>CANLI AKIŞ AKTİF — Çekirdek Dinlemede';
         };
 
         ws.onmessage = (event) => {
-            const log = JSON.parse(event.data);
-            addRow(log, false);
+            try {
+                const msg = JSON.parse(event.data);
+                if (msg.src_ip && msg.action) {
+                    syncIncidents();
+                }
+                if (msg.action && msg.action.includes('ISOLATED')) {
+                    addBlockedRow(msg.src_ip);
+                }
+                if (msg.event === 'IP_UNBLOCKED') {
+                    removeBlockedRow(msg.src_ip);
+                }
+            } catch (err) {
+                console.error("WS mesaj hatası:", err);
+            }
         };
-    </script>
+
+        ws.onclose = () => {
+            document.getElementById("connBadge").innerHTML = '<span class="status-indicator" style="background-color: #f59e0b;"></span>YEDEK POLİTİKA AKTİF (1s Senkron)';
+            setTimeout(initWebSocket, 2000);
+        };
+    }
+
+    // Başlatıcılar
+    syncIncidents();
+    syncBlockedList();
+    initWebSocket();
+
+    // 1 Saniyelik Otonom Senkron Döngüsü (Asla sayfa yenileme gerektirmez)
+    setInterval(() => {
+        syncIncidents();
+        syncBlockedList();
+    }, 1000);
+</script>
 </body>
 </html>

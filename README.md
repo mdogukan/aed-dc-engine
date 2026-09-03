@@ -1,45 +1,36 @@
-# AED-DC Engine (Otonom Tehdit İzleme, Aldatma ve Tecrit Motoru)
+# AED-DC Engine (Autonomous Cyber Deception & Kernel Containment Engine)
 
-AED-DC Engine; kurumsal ağlarda yetkisiz tarama, sızma ve keşif girişimlerini dinamik tuzaklar (honeypot) ile saptayan, çekirdek (kernel) seviyesinde `nftables` kuralları ile saldırganı anında izole eden ve tüm adli delilleri gerçek zamanlı olarak görselleştiren otonom bir aktif savunma sistemidir.
+AED-DC Engine, kurumsal ağlar için tasarlanmış; saldırganı pasif keşif aşamasından itibaren saptayan, dinamik bal tuzaklarıyla (honeypot/decoy) oltalayan ve Linux çekirdek seviyesinde (nftables timeout sets) otonom olarak tecrit eden yeni nesil bir **Siber Aldatma ve Adli Bilişim (Deception & Containment)** platformudur.
 
----
-
-## Temel Özellikler
-
-* **Çekirdek Düzeyinde Ağ Dinleme (BPF):** Scapy tabanlı paket analiz motoru ile ağ üzerindeki şüpheli SYN ve port tarama hareketlerinin düşük gecikmeyle yakalanması.
-* **Dinamik Aldatma Servisleri (Decoy Traps):** 
-  * Asenkron HTTP bal jetonu (Honeytoken) tuzağı (`.env`, `robots.txt` ve mutasyonlu banner yanıtları).
-  * Asenkron SSH tuzağı ile yetkisiz kaba kuvvet (brute-force) girişimlerinin adli kaydı.
-* **Çekirdek Seviyesinde Otonom Tecrit:** `nftables` kanca zincirleri (`inet aed_filter aed_isolation`) aracılığıyla tespit edilen saldırgan IP adreslerinin sistem seviyesinde `DROP` kuralı ile anında engellenmesi.
-* **Kalıcı Adli Veri Kaydı:** Yakalanan tüm adli delillerin (kaynak IP, port, hedef, HTTP başlıkları, kullanıcı ajanları) zaman damgalı olarak SQLite veritabanında saklanması.
-* **Gerçek Zamanlı Telemetri ve Web Paneli:**
-  * FastAPI ve WebSocket (`/ws/threats`) ile sayfayı yenilemeden tarayıcıya itilen canlı saldırı akışı.
-  * Sayfa ilk açıldığında geçmiş olayları ve mevcut `nftables` engellerini REST uç noktalarından çeken hibrit kontrol paneli (`/`).
-* **Asenkron Dış Bildirim Motoru:** Kritik tecrit kararlarını dış webhook ve sistemlere `httpx` üzerinden asenkron ileten bildirim mimarisi.
+Sistem, sahte IP havuzlarını dinleyerek **sıfır yanlış alarm (zero false-positive)** prensibiyle çalışır.
 
 ---
 
-## Mimari Bileşenler
+## Sistem Mimarisi
 
-```text
-aed-dc-engine/
-├── alerts/
-│   └── notifier.py         # Asenkron HTTP bildirim motoru (httpx)
-├── api/
-│   ├── app.py              # FastAPI REST uç noktaları (/api/incidents, /api/containment/*)
-│   ├── panel.html          # WebSocket ve REST tabanlı canlı adli izleme arayüzü
-│   └── ws_manager.py       # Çift yönlü WebSocket bağlantı yöneticisi
-├── containment/
-│   └── blocker.py          # nftables çekirdek filtreleme ve tecrit kuralları
-├── core/
-│   └── engine.py           # Paket analiz ve çekirdek dinleme motoru
-├── database/
-│   ├── db.py               # SQLite adli olay yönetim katmanı
-│   └── incidents.db        # Olay veritabanı
-├── traps/
-│   ├── honeytokens.py      # Sahte kimlik ve konfigürasyon veri üreteçleri
-│   ├── mutator.py          # Dinamik servis başlığı ve yanıt mutasyon modülü
-│   ├── service_mock.py     # Asenkron sahte HTTP servisi
-│   └── ssh_mock.py         # Asenkron sahte SSH servisi
-├── main.py                 # Tüm servisleri koordine eden ana başlatıcı
-└── requirements.txt        # Proje bağımlılıkları
+- **Paket Yakalama (Kernel Promiscuous):** Scapy tabanlı ham soket dinleyicisi (ens33).
+- **Yem Servisleri (Decoys):** Port 80 (Sahte .env API sızıntısı) ve Port 22 (Ubuntu OpenSSH Banner).
+- **Çekirdek Tecrit Motoru:** nftables inet aed_filter @isolated_ips timeout kuralı ile O(1) hızında paket düşürme.
+- **Adli Delil Deposu (Forensics):** TCP bayrakları, TTL, pencere boyutu ve HTTP başlıklarını JSON olarak saklayan SQLite altyapısı.
+- **Canlı Operasyon Konsolu:** Thread-safe WebSocket telemetrisi ile F5 gerektirmeyen gerçek zamanlı izleme paneli.
+
+---
+
+## Temel Yetenekler
+
+1. **Çekirdek Düzeyinde Tecrit (Kernel-Level Containment):** Bellek kümelerinde (sets) otomatik TTL geri sayımı ile sıfır CPU yükü.
+2. **Kademeli Yargılama ve Eşik Denetimi (Rate Limiting):** Tekil pingler ve kapalı port yoklamaları sessizce gözlemlenir (RECON_DETECTED / PROBE_DETECTED). 5 saniyede 5 ICMP veya 3 SYN paketinde IP çekirdekte mühürlenir.
+3. **Yüksek Etkileşimli Yem Servisleri:** Saldırgana sahte AWS/JWT anahtarları servis edilerek profil çıkartılır ve temas anında tecrit edilir.
+4. **Dinamik Ceza Ölçeklendirmesi (Multi-Strike TTL):** 1. ihlalde 1 saat, mükerrer ihlallerde 6 ve 48 saatlik ceza süreleri.
+5. **Adli Raporlama:** Tek tıkla SIEM ve SOC uyumlu JSON ve CSV formatında dışa aktarım.
+
+---
+
+## REST API Uç Noktaları
+
+- `GET /api/incidents` : Güncel adli olayları listeler.
+- `GET /api/blocked-ips` : Çekirdekte tecrit edilen IP listesini döner.
+- `POST /api/unblock/{ip}` : IP engelini hem çekirdekten hem panelden kaldırır.
+- `GET /api/export/json` : Adli kayıtları JSON raporu olarak indirir.
+- `GET /api/export/csv` : Adli kayıtları CSV formatında indirir.
+- `WS /ws/stream` : Canlı telemetri akışı için WebSocket soketi.

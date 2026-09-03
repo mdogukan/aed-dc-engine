@@ -1,94 +1,163 @@
-import sys
 import os
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
 import yaml
 import json
+import time
 import logging
 from datetime import datetime, timezone
-from scapy.all import sniff, IP, TCP
+from collections import defaultdict
+from scapy.all import sniff, IP, TCP, ICMP
 from containment.blocker import NftablesContainment
 from database.db import IncidentDatabase
+from api.ws_manager import live_broadcaster
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - [%(levelname)s] - %(message)s")
+logger = logging.getLogger("AED-DC.Engine")
 
 class SecurityEngine:
-    def __init__(self, config_path="config/config.yaml"):
-        with open(config_path, "r") as f:
-            self.config = yaml.safe_load(f)
+    def __init__(self, config_path=None):
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        
+        if config_path is None:
+            candidate_1 = os.path.join(base_dir, "config", "config.yaml")
+            candidate_2 = os.path.join(base_dir, "config.yaml")
+            config_path = candidate_1 if os.path.exists(candidate_1) else candidate_2
 
-        self.interface = self.config["network"]["interface"]
-        self.decoy_ips = set(self.config["network"]["decoy_ips"])
-        self.whitelist = set(self.config["whitelist"]["ips"])
-        self.log_file = self.config["logging"]["log_file"]
+        self.config = {}
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    self.config = yaml.safe_load(f) or {}
+            except Exception as e:
+                logger.error(f"Config okunamadı: {e}")
 
-        self.blocker = NftablesContainment(
-            table_name=self.config["containment"]["table_name"],
-            chain_name=self.config["containment"]["chain_name"]
-        )
+        net_cfg = self.config.get("network", {})
+        self.decoy_ip = net_cfg.get("decoy_ip", "192.168.159.240")
+        self.interface = net_cfg.get("interface", "ens33")
+
+        cont_cfg = self.config.get("containment", {})
+        table_name = cont_cfg.get("table_name", "aed_filter")
+        chain_name = cont_cfg.get("chain_name", "aed_isolation")
+
+        self.blocker = NftablesContainment(table=table_name, chain=chain_name)
         self.db = IncidentDatabase()
+        self.log_file = os.path.join(base_dir, "logs", "detections.json")
 
-    def _log_incident(self, incident):
-        logging.warning(f"(!) PORT TARAMASI ENGELLENDİ: {incident['src_ip']} -> {incident['dst_ip']}:{incident['dst_port']}")
+        self.icmp_tracker = defaultdict(list)
+        self.syn_tracker = defaultdict(list)
+
+    def _is_rate_exceeded(self, tracker_dict: dict, ip: str, window_seconds: int = 5, threshold: int = 5) -> bool:
+        now = time.time()
+        tracker_dict[ip] = [t for t in tracker_dict[ip] if now - t <= window_seconds]
+        tracker_dict[ip].append(now)
+        return len(tracker_dict[ip]) >= threshold
+
+    def _process_packet(self, packet):
         try:
-            with open(self.log_file, "a") as f:
-                f.write(json.dumps(incident) + "\n")
-            # SQLite veritabanına da yaz
-            self.db.add_incident(
-                src_ip=incident['src_ip'],
-                src_port=incident['src_port'],
-                dst_ip=incident['dst_ip'],
-                dst_port=incident['dst_port'],
-                service_type="RAW_PORT_SCAN",
-                action=incident['action']
-            )
-        except Exception as e:
-            logging.error(f"Kayıt hatası: {e}")
-
-    def handle_packet(self, packet):
-        if not packet.haslayer(IP) or not packet.haslayer(TCP):
-            return
-
-        src_ip = packet[IP].src
-        dst_ip = packet[IP].dst
-        dst_port = packet[TCP].dport
-        tcp_flags = packet[TCP].flags
-
-        if src_ip in self.whitelist:
-            return
-
-        if tcp_flags == "S" and dst_ip in self.decoy_ips:
-            if dst_port in [80, 22]:
+            if not packet.haslayer(IP):
                 return
 
-            incident = {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "src_ip": src_ip,
-                "src_port": packet[TCP].sport,
-                "dst_ip": dst_ip,
-                "dst_port": dst_port,
-                "action": "AUTO_ISOLATED"
-            }
-            
-            if self.config["containment"]["enabled"]:
-                self.blocker.isolate_ip(src_ip)
+            src_ip = packet[IP].src
+            dst_ip = packet[IP].dst
 
-            self._log_incident(incident)
+            if dst_ip != self.decoy_ip or src_ip == self.decoy_ip:
+                return
 
-    def start(self):
-        ip_filters = " or ".join([f"dst host {ip}" for ip in self.decoy_ips])
-        bpf_filter = f"tcp and ({ip_filters})"
-        
-        logging.info(f"[*] AED-DC Çekirdek Dinleyicisi Devrede | Filtre: {bpf_filter}")
-        
-        sniff(
-            iface=self.interface,
-            filter=bpf_filter,
-            prn=self.handle_packet,
-            store=False
-        )
+            current_ts = datetime.now(timezone.utc).isoformat()
 
-if __name__ == "__main__":
-    engine = SecurityEngine()
-    engine.start()
+            # 1. ICMP Keşfi (Ping)
+            if packet.haslayer(ICMP):
+                icmp_type = packet[ICMP].type
+                if icmp_type == 8:
+                    forensics = {
+                        "icmp_type": 8,
+                        "icmp_code": packet[ICMP].code,
+                        "ip_ttl": packet[IP].ttl
+                    }
+
+                    if self._is_rate_exceeded(self.icmp_tracker, src_ip, window_seconds=5, threshold=5):
+                        action_text = "ISOLATED (PING_FLOOD)"
+                        event_type = "ATTACK_ISOLATED"
+                        logger.warning(f"[AGRESİF KEŞİF TECRİT] {src_ip} -> Çekirdeğe kilitlendi.")
+                        self.blocker.isolate_ip(src_ip, timeout_seconds=3600)
+                    else:
+                        action_text = "RECON_DETECTED"
+                        event_type = "RECON_DETECTED"
+                        logger.info(f"[SESSİZ GÖZLEM] {src_ip} -> ICMP Keşif pinglemesi yakalandı.")
+
+                    self.db.add_incident(
+                        src_ip=src_ip,
+                        src_port=0,
+                        dst_ip=dst_ip,
+                        dst_port=0,
+                        service_type="ICMP",
+                        action=action_text,
+                        forensics=forensics
+                    )
+
+                    live_broadcaster.broadcast_from_thread({
+                        "event": event_type,
+                        "timestamp": current_ts,
+                        "src_ip": src_ip,
+                        "dst_port": 0,
+                        "protocol": "ICMP",
+                        "action": action_text,
+                        "forensics": forensics
+                    })
+                    return
+
+            if src_ip in self.blocker.get_blocked_ips():
+                return
+
+            # 2. TCP Port Taraması (SYN Scan)
+            if packet.haslayer(TCP):
+                tcp_layer = packet[TCP]
+                dst_port = tcp_layer.dport
+                flags = str(tcp_layer.flags)
+
+                if "S" in flags and "A" not in flags:
+                    if dst_port not in [80, 22]:
+                        forensics = {
+                            "tcp_flags": flags,
+                            "window_size": tcp_layer.window,
+                            "ip_ttl": packet[IP].ttl,
+                            "payload_len": len(packet[TCP].payload)
+                        }
+
+                        if self._is_rate_exceeded(self.syn_tracker, src_ip, window_seconds=5, threshold=3):
+                            action_text = "ISOLATED (PORT_SCAN)"
+                            event_type = "ATTACK_ISOLATED"
+                            logger.warning(f"[PORT TARAMASI TECRİT] {src_ip} -> Çekirdeğe kilitlendi.")
+                            self.blocker.isolate_ip(src_ip, timeout_seconds=3600)
+                        else:
+                            action_text = "PROBE_DETECTED"
+                            event_type = "PROBE_DETECTED"
+                            logger.info(f"[PORT YOKLAMA] {src_ip} -> Hedef port: {dst_port}")
+
+                        self.db.add_incident(
+                            src_ip=src_ip,
+                            src_port=tcp_layer.sport,
+                            dst_ip=dst_ip,
+                            dst_port=dst_port,
+                            service_type="TCP_SCAN",
+                            action=action_text,
+                            forensics=forensics
+                        )
+
+                        live_broadcaster.broadcast_from_thread({
+                            "event": event_type,
+                            "timestamp": current_ts,
+                            "src_ip": src_ip,
+                            "dst_port": dst_port,
+                            "protocol": "TCP/SYN",
+                            "action": action_text,
+                            "forensics": forensics
+                        })
+        except Exception as e:
+            logger.error(f"Paket işleme hatası: {e}")
+
+    def run(self):
+        bpf_filter = f"dst host {self.decoy_ip}"
+        logger.info(f"[*] Çekirdek Sniffer Aktif | Arayüz: {self.interface} | Filtre: '{bpf_filter}'")
+        try:
+            sniff(iface=self.interface, filter=bpf_filter, prn=self._process_packet, store=0)
+        except Exception as e:
+            logger.error(f"Sniffer hatası: {e}")

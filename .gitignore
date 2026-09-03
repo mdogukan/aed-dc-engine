@@ -1,5 +1,18 @@
+# Sanal Ortam (Virtualenv)
 venv/
+.venv/
+env/
+
+# Python Derleme Dosyaları
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+
+# Veritabanı ve Çalışma Zamanı Logları
+database/*.db
+database/*.db-journal
 logs/*.json
-*.log
+logs/*.log
+
+# Ortam Değişkenleri ve Gizli Anahtarlar
+.env

@@ -1,23 +1,10 @@
 network:
   interface: "ens33"
-  decoy_ips:
-    - "192.168.159.240"
-  target_ports:
-    - 22
-    - 80
-    - 8080
+  decoy_ip: "192.168.159.240"
 
 containment:
-  enabled: true
   table_name: "aed_filter"
   chain_name: "aed_isolation"
-
-whitelist:
-  ips:
-    - "127.0.0.1"
-  #  - "192.168.159.1"
-    - "192.168.159.2"
-    - "192.168.159.133"
 
 logging:
   log_file: "logs/detections.json"
