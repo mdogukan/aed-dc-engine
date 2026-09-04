@@ -1,162 +1,163 @@
-import sys
-import os
 import asyncio
+import threading
 import logging
 import json
-from datetime import datetime, timezone, timedelta
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
-from api.ws_manager import live_broadcaster
-from alerts.notifier import notifier_engine
+from datetime import datetime
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from containment.blocker import NftablesContainment
-from database.db import IncidentDatabase
+from database.db import db
+from api.ws_manager import ws_manager
 
-logger = logging.getLogger("AED-DC.Decoy")
+logger = logging.getLogger("AED-DC.Traps")
 
-class AsyncDecoyServer:
-    def __init__(self, bind_ip="0.0.0.0", port=80, target_decoy="192.168.159.240", log_file="logs/detections.json"):
-        self.bind_ip = bind_ip
-        self.port = port
-        self.target_decoy = target_decoy
-        self.log_file = log_file
-        self.blocker = NftablesContainment()
-        self.db = IncidentDatabase()
+FAKE_ENV_RESPONSE = """# Production Environment Secrets
+APP_NAME=Enterprise-Core-API
+APP_ENV=production
+APP_KEY=base64:dGVzdGtleWZvcmF1dG9ub21vdXNjeWJlcmRlY2VwdGlvbg==
+APP_DEBUG=false
+DB_CONNECTION=pgsql
+DB_HOST=10.0.80.12
+DB_PORT=5432
+DB_DATABASE=corp_vault
+DB_USERNAME=pg_admin_sec
+DB_PASSWORD=V4ult#Master@2026!Key
+AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+JWT_SECRET=super_secret_signing_token_9921_xae
+"""
 
-    def _calculate_dynamic_ttl(self, client_ip: str) -> tuple[int, str]:
-        now = datetime.now(timezone.utc)
-        window_limit = now - timedelta(days=2)
+class DecoyHTTPHandler(BaseHTTPRequestHandler):
+    blocker = NftablesContainment()
+
+    def log_message(self, format, *args):
+        pass  # Standart konsol log kirliliğini önle
+
+    def do_GET(self):
+        self._handle_attack()
+
+    def do_POST(self):
+        self._handle_attack()
+
+    def do_HEAD(self):
+        self._handle_attack()
+
+    def _handle_attack(self):
+        client_ip = self.client_address[0]
+        req_path = self.path
+        user_agent = self.headers.get("User-Agent", "Unknown")
+        headers_dump = dict(self.headers)
+        now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
+        logger.warning(f"[YEM SERVİSİ ETKİLEŞİMİ] Saldırgan IP: {client_ip} | İstek: {req_path}")
+
+        forensics = {
+            "requested_path": req_path,
+            "method": self.command,
+            "user_agent": user_agent,
+            "headers": headers_dump,
+            "trigger": "HIGH_INTERACTION_DECOY_ENV_TRAP",
+            "honey_token": "AWS_ACCESS_KEY_ID & DB_PASSWORD"
+        }
+
+        # 1. SQLite Adli Kayıt
         try:
-            incidents = self.db.get_all_incidents()
-            recent_strikes = sum(
-                1 for inc in incidents 
-                if inc.get("src_ip") == client_ip and (
-                    datetime.fromisoformat(str(inc.get("timestamp")).replace("Z", "+00:00")).replace(tzinfo=timezone.utc) >= window_limit
-                    if inc.get("timestamp") else True
-                )
+            db.log_incident(
+                src_ip=client_ip,
+                dst_port=80,
+                protocol="HTTP",
+                action="INTERACTED_AND_ISOLATED",
+                forensics=forensics
             )
-            strike_count = max(1, recent_strikes)
-        except Exception:
-            strike_count = 1
+        except Exception as e:
+            logger.error(f"Veritabanı yazma hatası: {e}")
 
-        if strike_count <= 1:
-            return 3600, "1 Saat (1. İhlal)"
-        elif strike_count == 2:
-            return 21600, "6 Saat (2. İhlal)"
-        else:
-            return 172800, "48 Saat (3+ İhlal)"
+        # 2. Çekirdek Seviyesinde Tecrit (1 Saat)
+        try:
+            self.blocker.isolate_ip(client_ip, timeout_seconds=3600)
+        except Exception as e:
+            logger.error(f"Tecrit motoru hatası: {e}")
 
-    def _log_forensic_data(self, client_ip: str, client_port: int, details: dict):
-        forensic_entry = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+        # 3. Sol Tabloya Anında Canlı WebSocket Yayını Fırlat
+        payload = {
+            "timestamp": now_str,
             "src_ip": client_ip,
-            "src_port": client_port,
-            "dst_ip": self.target_decoy,
-            "dst_port": self.port,
-            "service_type": "HTTP",
-            "forensics": details,
-            "action": "INTERACTED_AND_ISOLATED"
+            "ip": client_ip,
+            "dst_port": 80,
+            "port": 80,
+            "protocol": "HTTP",
+            "action": "INTERACTED_AND_ISOLATED",
+            "event": "INTERACTED_AND_ISOLATED",
+            "forensics": forensics
         }
         try:
-            with open(self.log_file, "a") as f:
-                f.write(json.dumps(forensic_entry) + "\n")
-            self.db.add_incident(
-                src_ip=client_ip,
-                src_port=client_port,
-                dst_ip=self.target_decoy,
-                dst_port=self.port,
-                service_type="HTTP",
-                action="INTERACTED_AND_ISOLATED",
-                forensics=details
-            )
+            ws_manager.broadcast_threadsafe(payload)
         except Exception as e:
-            logger.error(f"Adli log hatası: {e}")
+            logger.error(f"WebSocket yayın hatası: {e}")
 
-    async def handle_client(self, reader, writer):
-        peername = writer.get_extra_info('peername')
-        sockname = writer.get_extra_info('sockname')
-
-        client_ip = peername[0] if peername else "Unknown"
-        client_port = peername[1] if peername else 0
-        dest_ip = sockname[0] if sockname else "Unknown"
-
-        if dest_ip != self.target_decoy:
-            writer.close()
-            return
-
+        # 4. Saldırgana Sahte İçeriği Dön
         try:
-            data = await asyncio.wait_for(reader.read(1024), timeout=5.0)
-            request_text = data.decode('utf-8', errors='ignore')
-            first_line = request_text.splitlines()[0] if request_text else ""
-            user_agent = "Bilinmiyor"
-            for line in request_text.splitlines():
-                if line.lower().startswith("user-agent:"):
-                    user_agent = line.split(":", 1)[1].strip()
+            body = FAKE_ENV_RESPONSE.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Server", "nginx/1.18.0 (Ubuntu)")
+            self.end_headers()
+            self.wfile.write(body)
+        except Exception:
+            pass
 
-            body = (
-                "# Cloud Storage Credentials\n"
-                "AWS_ACCESS_KEY_ID=AKIA2KCNSZ0QS3V4YQR8\n"
-                "AWS_SECRET_ACCESS_KEY=dSY5YRiznPs5raUVsVmNLuYY3kfwzk0BWCtPseVz\n"
-                "AWS_DEFAULT_REGION=eu-central-1\n\n"
-                "# JWT Authentication\n"
-                "JWT_SECRET=-KkGAZ7ncixkQx73hMag0rqYm0jO5UwZG198do1c_cA\n"
-            )
-            response = (
-                "HTTP/1.1 200 OK\r\n"
-                "Content-Type: text/plain\r\n"
-                f"Content-Length: {len(body)}\r\n"
-                "Connection: close\r\n\r\n" + body
-            )
+class ReusableHTTPServer(HTTPServer):
+    allow_reuse_address = True
 
-            writer.write(response.encode('utf-8'))
-            await writer.drain()
+class AsyncDecoyServer:
+    def __init__(self, *args, **kwargs):
+        host = "0.0.0.0"
+        port = 80
+        if args:
+            if isinstance(args[0], str):
+                host = args[0]
+                if len(args) > 1:
+                    port = args[1]
+            elif isinstance(args[0], dict):
+                host = args[0].get("host", host)
+                port = args[0].get("port", port)
+            elif hasattr(args[0], "host"):
+                host = getattr(args[0], "host", host)
+                port = getattr(args[0], "port", port)
+        if "host" in kwargs:
+            host = kwargs["host"]
+        if "port" in kwargs:
+            port = kwargs["port"]
+        self.host = str(host)
+        self.port = int(port)
+        self.server = None
+        self.thread = None
 
-            details = {
-                "first_line": first_line,
-                "requested_path": first_line.split()[1] if len(first_line.split()) > 1 else "/",
-                "user_agent": user_agent,
-                "token_delivered": "ENV_CREDENTIALS_LEAKED"
-            }
-            self._log_forensic_data(client_ip, client_port, details)
-
-            writer.close()
-            try:
-                await asyncio.wait_for(writer.wait_closed(), timeout=2.0)
-            except Exception:
-                pass
-
-            # Dinamik TTL hesapla ve doğrudan Linux çekirdeğindeki kümeye (Set) timeout ile ekle
-            ttl_seconds, ttl_label = self._calculate_dynamic_ttl(client_ip)
-            self.blocker.isolate_ip(client_ip, timeout_seconds=ttl_seconds)
-
-            payload_data = {
-                "event": "ATTACK_ISOLATED",
-                "src_ip": client_ip,
-                "dst_port": self.port,
-                "protocol": "HTTP",
-                "action": f"ISOLATED ({ttl_label})",
-                "forensics": details
-            }
-
-            await asyncio.gather(
-                live_broadcaster.broadcast_event(payload_data),
-                notifier_engine.broadcast_containment(client_ip, self.port, "HTTP", f"Bal Jetonu Teslim Edildi: {first_line}"),
-                return_exceptions=True
-            )
-
+    def _run_server(self):
+        try:
+            self.server = ReusableHTTPServer((self.host, self.port), DecoyHTTPHandler)
+            logger.info(f"[*] Dinamik Sahte Servisler Başlatıldı | Dinleme: {self.host}:{self.port} (HTTP)")
+            self.server.serve_forever()
         except Exception as e:
-            logger.error(f"HTTP işleyici hatası: {e}")
-        finally:
-            try:
-                writer.close()
-            except Exception:
-                pass
+            logger.error(f"HTTP Dinleme Hatası ({self.host}:{self.port}): {e}")
 
     async def start(self):
+        """main.py içerisindeki asyncio.gather() ile tam uyumlu asenkron coroutine."""
+        if not self.thread or not self.thread.is_alive():
+            self.thread = threading.Thread(target=self._run_server, daemon=True)
+            self.thread.start()
         try:
-            server = await asyncio.start_server(self.handle_client, self.bind_ip, self.port)
-            logger.info(f"[*] Dinamik Sahte Servisler Başlatıldı | Dinleme: {self.bind_ip}:{self.port} (HTTP)")
-            async with server:
-                await server.serve_forever()
-        except Exception as e:
-            logger.error(f"Soket dinleme başlatılamadı: {e}")
+            while True:
+                await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            self.stop()
+
+    def stop(self):
+        if self.server:
+            try:
+                self.server.shutdown()
+                self.server.server_close()
+            except Exception:
+                pass
+
+start_http_trap = lambda host="0.0.0.0", port=80: AsyncDecoyServer(host, port)

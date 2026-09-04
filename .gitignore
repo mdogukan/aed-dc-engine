@@ -1,18 +1,16 @@
-# Sanal Ortam (Virtualenv)
+# Python sanal ortamı ve önbellekleri
 venv/
-.venv/
-env/
-
-# Python Derleme Dosyaları
 __pycache__/
 *.py[cod]
 *$py.class
 
-# Veritabanı ve Çalışma Zamanı Logları
-database/*.db
-database/*.db-journal
-logs/*.json
-logs/*.log
+# SQLite geçici ve kilit dosyaları
+*.db-journal
+*.db-wal
+*.db-shm
 
-# Ortam Değişkenleri ve Gizli Anahtarlar
-.env
+# Log ve geçici dosyalar
+logs/*.json
+*.log
+.DS_Store
+*.db

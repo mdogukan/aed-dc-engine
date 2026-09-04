@@ -5,18 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AED-DC Engine - Otonom Tehdit İzleme & Tecrit Paneli</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
     <style>
-        body { background-color: #0b1320; color: #c5d1de; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        .card { background-color: #111c2d; border: 1px solid #1e2d42; border-radius: 8px; }
-        .table { color: #c5d1de; }
-        .table-dark { background-color: #111c2d; }
-        .table-hover tbody tr:hover { background-color: #1a293e; cursor: pointer; }
+        body { background-color: #080e18; color: #cbd5e1; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+        .card { background-color: #0f172a; border: 1px solid #1e293b; border-radius: 10px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5); }
+        .table { color: #cbd5e1; margin-bottom: 0; }
+        .table-dark { background-color: #0f172a; }
+        .table-hover tbody tr:hover { background-color: #1e293b; cursor: pointer; }
         .badge-recon { background-color: #d97706; color: #fff; }
-        .badge-isolated { background-color: #dc2626; color: #fff; }
+        .badge-isolated { background-color: #ef4444; color: #fff; }
         .badge-probe { background-color: #2563eb; color: #fff; }
         .badge-unblocked { background-color: #10b981; color: #fff; }
-        .status-indicator { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background-color: #10b981; margin-right: 6px; }
-        .modal-content { background-color: #111c2d; color: #c5d1de; border: 1px solid #1e2d42; }
+        .status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background-color: #10b981; margin-right: 8px; box-shadow: 0 0 8px #10b981; }
+        .modal-content { background-color: #0f172a; color: #cbd5e1; border: 1px solid #334155; }
+        .btn-unblock { font-size: 0.75rem; padding: 2px 8px; font-weight: 600; }
     </style>
 </head>
 <body class="p-3">
@@ -24,57 +26,73 @@
 <div class="container-fluid">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
-            <h3 class="fw-bold mb-1 text-white">AED-DC Engine - Otonom Tehdit İzleme & Tecrit Paneli</h3>
+            <h3 class="fw-bold mb-1 text-white"><i class="bi bi-shield-shaded text-danger me-2"></i>AED-DC Engine</h3>
             <span class="badge bg-dark border border-secondary text-success" id="connBadge">
-                <span class="status-indicator"></span>OTONOM MOTOR AKTİF — Çekirdek Dinlemede
+                <span class="status-dot"></span>CANLI TELEMETRİ AKTİF — Çekirdek Dinlemede
             </span>
         </div>
         <div>
-            <a href="/api/export/json" class="btn btn-sm btn-outline-info me-2">⬇ JSON Raporu</a>
-            <a href="/api/export/csv" class="btn btn-sm btn-outline-info">⬇ CSV Raporu</a>
+            <a href="/api/export/json" class="btn btn-sm btn-outline-info me-2"><i class="bi bi-filetype-json me-1"></i>JSON Raporu</a>
+            <a href="/api/export/csv" class="btn btn-sm btn-outline-info"><i class="bi bi-filetype-csv me-1"></i>CSV Raporu</a>
         </div>
     </div>
 
     <div class="row g-3">
-        <!-- SOL: Canlı Olay Akışı -->
+        <!-- SOL TABLO: Canlı Olay Akışı -->
         <div class="col-lg-8">
             <div class="card h-100">
-                <div class="card-header border-bottom border-secondary bg-transparent fw-semibold text-white">
-                    Gerçek Zamanlı Saldırı Akışı (Detay için satıra tıklayın)
+                <div class="card-header border-bottom border-secondary bg-transparent fw-semibold text-white d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-activity text-warning me-2"></i>Gerçek Zamanlı Tehdit Akışı (WebSocket)</span>
+                    <span class="text-secondary small">Adli delil için satıra tıklayın</span>
                 </div>
                 <div class="table-responsive p-2">
-                    <table class="table table-dark table-hover mb-0" id="incidentsTable">
+                    <table class="table table-dark table-hover align-middle">
                         <thead>
                             <tr class="text-secondary small">
                                 <th>Zaman (Yerel)</th>
                                 <th>Saldırgan IP</th>
                                 <th>Hedef Port</th>
                                 <th>Protokol</th>
-                                <th>Eylem</th>
+                                <th>Tuzak / Eylem</th>
                             </tr>
                         </thead>
-                        <tbody id="incidentsBody"></tbody>
+                        <tbody id="incidentsBody">
+                            <tr id="emptyIncidentsRow">
+                                <td colspan="5" class="text-center text-muted py-4 small">Henüz yakalanan bir olay kaydı yok.</td>
+                            </tr>
+                        </tbody>
                     </table>
                 </div>
             </div>
         </div>
 
-        <!-- SAĞ: Çekirdek Tecrit Listesi -->
+        <!-- SAĞ TABLO: Dinamik nftables Tecrit Listesi -->
         <div class="col-lg-4">
             <div class="card h-100">
-                <div class="card-header border-bottom border-secondary bg-transparent fw-semibold text-white">
-                    Dinamik nftables Tecrit Listesi (TTL Destekli)
+                <div class="card-header border-bottom border-secondary bg-transparent fw-semibold text-white d-flex justify-content-between align-items-center">
+                    <div>
+                        <i class="bi bi-slash-circle text-danger me-2"></i>Dinamik nftables Tecrit
+                        <span id="blockedCount" class="badge bg-danger ms-2">0</span>
+                    </div>
+                    <button class="btn btn-sm btn-outline-warning py-0 px-2" onclick="unblockAll()" title="Çekirdekteki tüm engelleri temizle">
+                        <i class="bi bi-arrow-counterclockwise"></i> Tümünü Kaldır
+                    </button>
                 </div>
                 <div class="table-responsive p-2">
-                    <table class="table table-dark mb-0">
+                    <table class="table table-dark align-middle">
                         <thead>
                             <tr class="text-secondary small">
                                 <th>Engellenen IP</th>
                                 <th>Kural</th>
-                                <th>İşlem</th>
+                                <th>Kalan Süre</th>
+                                <th class="text-end">İşlem</th>
                             </tr>
                         </thead>
-                        <tbody id="blockedBody"></tbody>
+                        <tbody id="blockedBody">
+                            <tr id="emptyBlockedRow">
+                                <td colspan="4" class="text-center text-muted py-4 small">Çekirdekte aktif tecrit bulunmuyor.</td>
+                            </tr>
+                        </tbody>
                     </table>
                 </div>
             </div>
@@ -82,16 +100,16 @@
     </div>
 </div>
 
-<!-- Modal: Adli Detay -->
+<!-- Modal: Adli Delil Detayı -->
 <div class="modal fade" id="detailModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header border-secondary">
-                <h5 class="modal-title">Adli Delil Analizi (Forensics)</h5>
+                <h5 class="modal-title"><i class="bi bi-fingerprint text-info me-2"></i>Adli Delil Analizi (Forensic JSON)</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <pre id="modalForensics" class="bg-dark p-3 text-info rounded" style="max-height: 400px; overflow-y: auto;"></pre>
+                <pre id="modalForensics" class="bg-dark p-3 text-info rounded font-monospace" style="max-height: 420px; overflow-y: auto;"></pre>
             </div>
         </div>
     </div>
@@ -101,11 +119,12 @@
 <script>
     const incidentsBody = document.getElementById("incidentsBody");
     const blockedBody = document.getElementById("blockedBody");
+    const blockedCount = document.getElementById("blockedCount");
     const detailModal = new bootstrap.Modal(document.getElementById('detailModal'));
     const modalForensics = document.getElementById('modalForensics');
 
-    // Ekranda zaten gösterilen olayların ID kaydı (Çift eklemeyi ve titremeyi önler)
-    const renderedIncidentIds = new Set();
+    let activeBlockedIps = new Set();
+    let knownIncidentKeys = new Set();
 
     function getBadgeClass(action) {
         if (!action) return 'bg-secondary';
@@ -116,26 +135,48 @@
         return 'bg-secondary';
     }
 
+    function resolveProtocol(item) {
+        const port = Number(item.dst_port || item.port || 0);
+        const action = item.action || item.event || '';
+        const rawProto = (item.protocol || item.service_type || '').toUpperCase();
+
+        if (port === 0 || action.includes('RECON') || action.includes('PING') || rawProto === 'ICMP') return 'ICMP';
+        if (port === 80 || port === 8080 || action.includes('HTTP') || rawProto === 'HTTP') return 'HTTP';
+        if (port === 22 || action.includes('SSH') || rawProto === 'SSH') return 'SSH';
+        return rawProto || 'TCP';
+    }
+
     function formatLocalTime(isoStr) {
         if (!isoStr) return new Date().toLocaleTimeString('tr-TR', { hour12: false });
         try {
-            const s = (isoStr.endsWith('Z') || isoStr.includes('+')) ? isoStr : isoStr + 'Z';
-            const d = new Date(s);
-            return isNaN(d.getTime()) ? isoStr : d.toLocaleTimeString('tr-TR', { hour12: false });
+            const cleanStr = isoStr.includes('T') ? isoStr : isoStr.replace(' ', 'T');
+            const dateObj = new Date(cleanStr.endsWith('Z') || cleanStr.includes('+') ? cleanStr : cleanStr + 'Z');
+            if (isNaN(dateObj.getTime())) return isoStr;
+            return dateObj.toLocaleTimeString('tr-TR', { hour12: false });
         } catch (e) {
             return isoStr;
         }
     }
 
+    function generateKey(item) {
+        if (item.id) return `id_${item.id}`;
+        return `event_${item.timestamp}_${item.src_ip || item.ip}_${item.dst_port || item.port}_${item.action || item.event}`;
+    }
+
     function createIncidentRow(item) {
         const tr = document.createElement("tr");
         const timeStr = formatLocalTime(item.timestamp);
+        const actionStr = item.action || item.event || 'LOG';
+        const srcIp = item.src_ip || item.ip || '-';
+        const port = item.dst_port || item.port || 0;
+        const proto = resolveProtocol(item);
+
         tr.innerHTML = `
-            <td class="text-info">${timeStr}</td>
-            <td class="text-danger fw-semibold">${item.src_ip}</td>
-            <td>${item.dst_port || 0}</td>
-            <td>${item.protocol || item.service_type || 'TCP'}</td>
-            <td><span class="badge ${getBadgeClass(item.action)}">${item.action}</span></td>
+            <td class="text-info font-monospace">${timeStr}</td>
+            <td class="text-danger fw-semibold font-monospace">${srcIp}</td>
+            <td class="font-monospace">${port}</td>
+            <td class="fw-semibold">${proto}</td>
+            <td><span class="badge ${getBadgeClass(actionStr)}">${actionStr}</span></td>
         `;
         tr.onclick = () => {
             modalForensics.textContent = JSON.stringify(item.forensics || {}, null, 2);
@@ -144,126 +185,195 @@
         return tr;
     }
 
-    function addBlockedRow(ip) {
-        if (!ip || ip === "0.0.0.0") return;
-        const rowId = `blocked-${ip.replace(/\./g, '-')}`;
-        if (document.getElementById(rowId)) return;
+    function addIncidentToTop(item) {
+        const key = generateKey(item);
+        if (knownIncidentKeys.has(key)) return;
+        knownIncidentKeys.add(key);
 
-        const tr = document.createElement("tr");
-        tr.id = rowId;
-        tr.setAttribute("data-ip", ip);
-        tr.innerHTML = `
-            <td class="text-danger fw-semibold">${ip}</td>
-            <td><span class="badge bg-danger">DROP</span></td>
-            <td><button class="btn btn-sm btn-danger py-0 px-2" onclick="unblockIP('${ip}')">Kaldır</button></td>
-        `;
-        blockedBody.appendChild(tr);
-    }
+        const emptyRow = document.getElementById("emptyIncidentsRow");
+        if (emptyRow) emptyRow.remove();
 
-    function removeBlockedRow(ip) {
-        const el = document.getElementById(`blocked-${ip.replace(/\./g, '-')}`);
-        if (el) el.remove();
-    }
+        const row = createIncidentRow(item);
+        incidentsBody.insertBefore(row, incidentsBody.firstChild);
 
-    // 1. SOL TABLO SENKRONİZASYONU (Sadece yeni gelenleri üste ekler, F5 gerektirmez)
-    async function syncIncidents() {
-        try {
-            const res = await fetch('/api/incidents');
-            const data = await res.json();
-            
-            // Yeni olayları kronolojik olarak ekle (API id DESC döner)
-            for (let i = data.length - 1; i >= 0; i--) {
-                const item = data[i];
-                const uniqueKey = item.id ? `id-${item.id}` : `${item.timestamp}-${item.src_ip}-${item.action}`;
-                
-                if (!renderedIncidentIds.has(uniqueKey)) {
-                    renderedIncidentIds.add(uniqueKey);
-                    const row = createIncidentRow(item);
-                    incidentsBody.insertBefore(row, incidentsBody.firstChild);
-                    if (incidentsBody.children.length > 60) {
-                        incidentsBody.removeChild(incidentsBody.lastChild);
-                    }
-                }
-            }
-        } catch (e) {
-            console.error("Olay akışı senkron hatası:", e);
+        if (incidentsBody.children.length > 50) {
+            incidentsBody.removeChild(incidentsBody.lastChild);
         }
     }
 
-    // 2. SAĞ TABLO SENKRONİZASYONU (Çekirdekteki IP'leri ve Kaldır butonunu anında eşitler)
+    async function syncIncidents() {
+        try {
+            const res = await fetch('/api/incidents?limit=50');
+            const incData = await res.json();
+            if (Array.isArray(incData) && incData.length > 0) {
+                incData.slice().reverse().forEach(item => {
+                    addIncidentToTop(item);
+                });
+            }
+        } catch (e) {
+            console.error("Olay listesi güncellenemedi:", e);
+        }
+    }
+
+    function updateBlockedTable(detailsList) {
+        blockedCount.textContent = detailsList.length;
+
+        if (detailsList.length === 0) {
+            blockedBody.innerHTML = `<tr id="emptyBlockedRow"><td colspan="4" class="text-center text-muted py-4 small">Çekirdekte aktif tecrit bulunmuyor.</td></tr>`;
+            activeBlockedIps.clear();
+            return;
+        }
+
+        const emptyRow = document.getElementById("emptyBlockedRow");
+        if (emptyRow) emptyRow.remove();
+
+        const serverIps = new Set(detailsList.map(d => d.ip));
+
+        activeBlockedIps.forEach(ip => {
+            if (!serverIps.has(ip)) {
+                const row = document.getElementById(`blocked-${ip.replace(/\./g, '-')}`);
+                if (row) row.remove();
+                activeBlockedIps.delete(ip);
+            }
+        });
+
+        detailsList.forEach(item => {
+            const rowId = `blocked-${item.ip.replace(/\./g, '-')}`;
+            let tr = document.getElementById(rowId);
+            if (!tr) {
+                tr = document.createElement("tr");
+                tr.id = rowId;
+                tr.setAttribute("data-ip", item.ip);
+                tr.innerHTML = `
+                    <td class="text-danger fw-semibold font-monospace">${item.ip}</td>
+                    <td><span class="badge bg-danger">DROP</span></td>
+                    <td><span class="badge bg-dark border border-secondary text-info font-monospace" id="ttl-${rowId}">${item.expires || '-'}</span></td>
+                    <td class="text-end">
+                        <button class="btn btn-sm btn-danger btn-unblock" onclick="unblockIP('${item.ip}', this)">
+                            <i class="bi bi-shield-x"></i> Kaldır
+                        </button>
+                    </td>
+                `;
+                blockedBody.appendChild(tr);
+                activeBlockedIps.add(item.ip);
+            } else {
+                const ttlSpan = document.getElementById(`ttl-${rowId}`);
+                if (ttlSpan && item.expires) ttlSpan.textContent = item.expires;
+            }
+        });
+    }
+
+    async function unblockIP(ip, btnElement) {
+        if (btnElement) {
+            btnElement.disabled = true;
+            btnElement.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span>';
+        }
+        try {
+            const res = await fetch(`/api/unblock/${encodeURIComponent(ip)}`, { method: 'POST' });
+            if (res.ok) {
+                const rowId = `blocked-${ip.replace(/\./g, '-')}`;
+                const row = document.getElementById(rowId);
+                if (row) row.remove();
+                activeBlockedIps.delete(ip);
+                blockedCount.textContent = activeBlockedIps.size;
+                if (activeBlockedIps.size === 0) {
+                    blockedBody.innerHTML = `<tr id="emptyBlockedRow"><td colspan="4" class="text-center text-muted py-4 small">Çekirdekte aktif tecrit bulunmuyor.</td></tr>`;
+                }
+            } else {
+                alert("Engel kaldırılamadı!");
+                if (btnElement) {
+                    btnElement.disabled = false;
+                    btnElement.innerHTML = '<i class="bi bi-shield-x"></i> Kaldır';
+                }
+            }
+        } catch (err) {
+            console.error("Engel kaldırma hatası:", err);
+            if (btnElement) {
+                btnElement.disabled = false;
+                btnElement.innerHTML = '<i class="bi bi-shield-x"></i> Kaldır';
+            }
+        }
+    }
+
+    async function unblockAll() {
+        if (!confirm("Çekirdekteki tüm IP tecritlerini kaldırmak istediğinize emin misiniz?")) return;
+        try {
+            const res = await fetch('/api/unblock-all', { method: 'POST' });
+            if (res.ok) {
+                blockedBody.innerHTML = `<tr id="emptyBlockedRow"><td colspan="4" class="text-center text-muted py-4 small">Çekirdekte aktif tecrit bulunmuyor.</td></tr>`;
+                activeBlockedIps.clear();
+                blockedCount.textContent = "0";
+            }
+        } catch (err) {
+            console.error("Toplu temizleme hatası:", err);
+        }
+    }
+
     async function syncBlockedList() {
         try {
             const res = await fetch('/api/blocked-ips');
             const data = await res.json();
-            const serverIps = new Set(data.blocked_ips || []);
-
-            // Çekirdeğe yeni girenleri ekle
-            serverIps.forEach(ip => addBlockedRow(ip));
-
-            // Çekirdekten çıkanları tablodan temizle
-            blockedBody.querySelectorAll('tr').forEach(row => {
-                const rowIp = row.getAttribute('data-ip');
-                if (rowIp && !serverIps.has(rowIp)) {
-                    row.remove();
-                }
-            });
+            updateBlockedTable(data.details || []);
         } catch (e) {
-            console.error("Tecrit listesi senkron hatası:", e);
+            console.error("Tecrit senkronizasyon hatası:", e);
         }
     }
 
-    async function unblockIP(ip) {
-        try {
-            removeBlockedRow(ip);
-            await fetch(`/api/unblock/${ip}`, { method: 'POST' });
-            setTimeout(syncBlockedList, 300);
-        } catch (e) {
-            console.error("Engel kaldırma hatası:", e);
-        }
-    }
-
-    // 3. ANLIK WEBSOCKET (Milisaniyelik anlık tetikleme desteği)
     function initWebSocket() {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const ws = new WebSocket(`${protocol}//${window.location.host}/ws/stream`);
 
         ws.onopen = () => {
-            document.getElementById("connBadge").innerHTML = '<span class="status-indicator"></span>CANLI AKIŞ AKTİF — Çekirdek Dinlemede';
+            document.getElementById("connBadge").innerHTML = '<span class="status-dot"></span>CANLI TELEMETRİ AKTİF — Çekirdek Dinlemede';
         };
 
         ws.onmessage = (event) => {
             try {
                 const msg = JSON.parse(event.data);
-                if (msg.src_ip && msg.action) {
-                    syncIncidents();
+                const ip = msg.src_ip || msg.ip || (msg.data && (msg.data.src_ip || msg.data.ip));
+                const action = msg.action || msg.event || msg.type || (msg.data && (msg.data.action || msg.data.event));
+
+                if (ip && action && !action.includes('UNBLOCKED')) {
+                    addIncidentToTop(msg);
                 }
-                if (msg.action && msg.action.includes('ISOLATED')) {
-                    addBlockedRow(msg.src_ip);
+
+                if (action && (action.includes('ISOLATED') || action.includes('BLOCK') || action.includes('DROP'))) {
+                    syncBlockedList();
                 }
-                if (msg.event === 'IP_UNBLOCKED') {
-                    removeBlockedRow(msg.src_ip);
+
+                if (msg.event === 'IP_UNBLOCKED' || action === 'UNBLOCKED') {
+                    const targetIp = msg.src_ip || msg.ip || ip;
+                    const rowId = `blocked-${targetIp.replace(/\./g, '-')}`;
+                    const row = document.getElementById(rowId);
+                    if (row) row.remove();
+                    activeBlockedIps.delete(targetIp);
+                    blockedCount.textContent = activeBlockedIps.size;
+                    if (activeBlockedIps.size === 0) {
+                        blockedBody.innerHTML = `<tr id="emptyBlockedRow"><td colspan="4" class="text-center text-muted py-4 small">Çekirdekte aktif tecrit bulunmuyor.</td></tr>`;
+                    }
+                }
+
+                if (msg.event === 'ALL_UNBLOCKED' || action === 'ALL_UNBLOCKED') {
+                    blockedBody.innerHTML = `<tr id="emptyBlockedRow"><td colspan="4" class="text-center text-muted py-4 small">Çekirdekte aktif tecrit bulunmuyor.</td></tr>`;
+                    activeBlockedIps.clear();
+                    blockedCount.textContent = "0";
                 }
             } catch (err) {
-                console.error("WS mesaj hatası:", err);
+                console.error("Telemetri ayrıştırma hatası:", err);
             }
         };
 
         ws.onclose = () => {
-            document.getElementById("connBadge").innerHTML = '<span class="status-indicator" style="background-color: #f59e0b;"></span>YEDEK POLİTİKA AKTİF (1s Senkron)';
+            document.getElementById("connBadge").innerHTML = '<span class="status-dot" style="background-color: #ef4444; box-shadow: 0 0 8px #ef4444;"></span>BAĞLANTI KESİLDİ — Yeniden Bağlanıyor...';
             setTimeout(initWebSocket, 2000);
         };
     }
 
-    // Başlatıcılar
     syncIncidents();
     syncBlockedList();
     initWebSocket();
-
-    // 1 Saniyelik Otonom Senkron Döngüsü (Asla sayfa yenileme gerektirmez)
-    setInterval(() => {
-        syncIncidents();
-        syncBlockedList();
-    }, 1000);
+    setInterval(syncBlockedList, 2500);
+    setInterval(syncIncidents, 3000);
 </script>
 </body>
 </html>

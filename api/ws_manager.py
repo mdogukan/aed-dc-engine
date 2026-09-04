@@ -1,68 +1,70 @@
 import asyncio
-import json
 import logging
+from typing import List
 from fastapi import WebSocket
 
 logger = logging.getLogger("AED-DC.WebSocket")
 
 class ConnectionManager:
-    # Tüm modüller ve thread'ler için ortak tekil havuz (Singleton)
-    _connections: set[WebSocket] = set()
-    _loop: asyncio.AbstractEventLoop = None
+    _instance = None
 
-    @classmethod
-    def set_loop(cls, loop: asyncio.AbstractEventLoop):
-        cls._loop = loop
-        logger.info("[*] WebSocket olay döngüsü başarıyla kaydedildi.")
+    def __new__(cls, *args, **kwargs):
+        if not cls._instance:
+            cls._instance = super(ConnectionManager, cls).__new__(cls)
+            cls._instance.active_connections: List[WebSocket] = []
+            cls._instance.loop = None
+        return cls._instance
 
-    @classmethod
-    async def connect(cls, websocket: WebSocket):
+    def set_loop(self, loop):
+        self.loop = loop
+
+    async def connect(self, websocket: WebSocket):
         await websocket.accept()
-        cls._connections.add(websocket)
-        if cls._loop is None or not cls._loop.is_running():
-            try:
-                cls._loop = asyncio.get_running_loop()
-            except RuntimeError:
-                pass
-        logger.info(f"Canlı telemetri istemcisi bağlandı. Aktif istemci: {len(cls._connections)}")
+        self.active_connections.append(websocket)
 
-    @classmethod
-    def disconnect(cls, websocket: WebSocket):
-        cls._connections.discard(websocket)
-        logger.info(f"Canlı telemetri istemcisi ayrıldı. Kalan: {len(cls._connections)}")
+    def disconnect(self, websocket: WebSocket):
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
 
-    @classmethod
-    async def broadcast_event(cls, data: dict):
-        if not cls._connections:
-            return
-        message = json.dumps(data)
-        dead = set()
-        for conn in list(cls._connections):
+    async def _async_broadcast(self, message: dict):
+        disconnected = []
+        for connection in list(self.active_connections):
             try:
-                await conn.send_text(message)
+                await connection.send_json(message)
             except Exception:
-                dead.add(conn)
-        for d in dead:
-            cls.disconnect(d)
+                disconnected.append(connection)
+        for dead in disconnected:
+            self.disconnect(dead)
 
-    @classmethod
-    def broadcast_from_thread(cls, data: dict):
-        """Scapy gibi harici thread'lerden FastAPI döngüsüne güvenli aktarım."""
+    def broadcast(self, *args, **kwargs):
+        message = args[0] if args else kwargs.get("message", kwargs.get("data", kwargs.get("event_data", {})))
+        
         try:
-            if cls._loop is not None and cls._loop.is_running():
-                future = asyncio.run_coroutine_threadsafe(cls.broadcast_event(data), cls._loop)
-                # Olası gizli coroutine hatalarını yakala
-                def _callback(f):
-                    try:
-                        f.result()
-                    except Exception as err:
-                        logger.error(f"[WS YAYIN HATA] Coroutine hatası: {err}")
-                future.add_done_callback(_callback)
-                logger.info(f"[*] Canlı telemetri aktarıldı ({len(cls._connections)} aktif istemci): {data.get('event')}")
-            else:
-                logger.warning("[WS UYARI] Ana döngü henüz aktif değil, veri iletilemedi.")
-        except Exception as e:
-            logger.error(f"[WS HATA] Thread yayın hatası: {e}")
+            curr_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            curr_loop = None
 
-# Tekil örnek
-live_broadcaster = ConnectionManager()
+        target_loop = self.loop or curr_loop
+
+        if target_loop and target_loop.is_running():
+            if curr_loop == target_loop:
+                return target_loop.create_task(self._async_broadcast(message))
+            else:
+                return asyncio.run_coroutine_threadsafe(self._async_broadcast(message), target_loop)
+        return None
+
+    # ssh_mock ve engine çağrıları için tam eşleşmeler
+    broadcast_event = broadcast
+    broadcast_from_thread = broadcast
+    broadcast_threadsafe = broadcast
+    broadcast_sync = broadcast
+    send = broadcast
+    emit = broadcast
+    publish = broadcast
+
+    def __call__(self, *args, **kwargs):
+        return self.broadcast(*args, **kwargs)
+
+ws_manager = ConnectionManager()
+manager = ws_manager
+live_broadcaster = ws_manager

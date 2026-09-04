@@ -1,102 +1,106 @@
-import os
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi.responses import HTMLResponse, StreamingResponse
 import io
 import csv
 import json
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query
-from fastapi.responses import FileResponse, Response
+import logging
+from pathlib import Path
 from containment.blocker import NftablesContainment
-from database.db import IncidentDatabase
-from api.ws_manager import live_broadcaster
+from database.db import db
+from api.ws_manager import ws_manager
+
+logger = logging.getLogger("AED-DC.API")
 
 app = FastAPI(title="AED-DC Engine API")
-
 blocker = NftablesContainment()
-db = IncidentDatabase()
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+@app.on_event("startup")
+async def startup_event():
+    import asyncio
+    ws_manager.set_loop(asyncio.get_running_loop())
+    logger.info("AED-DC API ve WebSocket yöneticisi aktif edildi.")
 
-@app.get("/")
-async def get_dashboard():
-    """Canlı izleme panelini döndürür."""
-    panel_path = os.path.join(BASE_DIR, "panel.html")
-    return FileResponse(panel_path)
+@app.get("/", response_class=HTMLResponse)
+async def get_panel():
+    panel_path = Path(__file__).parent / "panel.html"
+    if panel_path.exists():
+        return panel_path.read_text(encoding="utf-8")
+    return "<h3>panel.html bulunamadı</h3>"
 
-@app.websocket("/ws/threats")
-async def threat_websocket_endpoint(websocket: WebSocket):
-    """Canlı telemetri akışını sağlayan WebSocket uç noktası."""
-    await live_broadcaster.register(websocket)
+@app.get("/api/incidents")
+async def get_incidents(limit: int = 50):
+    try:
+        return db.get_incidents(limit=limit)
+    except Exception as e:
+        logger.error(f"Olaylar alınamadı: {e}")
+        return []
+
+@app.get("/api/blocked-ips")
+async def get_blocked_ips():
+    try:
+        details = blocker.get_blocked_details()
+        ips = [d["ip"] for d in details]
+        return {"blocked_ips": ips, "details": details}
+    except Exception as e:
+        logger.error(f"Tecritli IP'ler sorgulanamadı: {e}")
+        return {"blocked_ips": [], "details": []}
+
+@app.post("/api/unblock/{ip}")
+async def unblock_ip(ip: str):
+    success = blocker.unblock_ip(ip)
+    if success:
+        await ws_manager.broadcast({"event": "IP_UNBLOCKED", "src_ip": ip, "action": "UNBLOCKED"})
+        return {"status": "success", "ip": ip}
+    raise HTTPException(status_code=400, detail="IP engeli kaldırılamadı")
+
+@app.post("/api/unblock-all")
+async def unblock_all():
+    success = blocker.flush_all()
+    if success:
+        await ws_manager.broadcast({"event": "ALL_UNBLOCKED", "action": "ALL_UNBLOCKED"})
+        return {"status": "success", "message": "Tüm engeller kaldırıldı"}
+    raise HTTPException(status_code=500, detail="Küme sıfırlanamadı")
+
+@app.get("/api/export/json")
+async def export_json():
+    incidents = db.get_incidents(limit=1000)
+    data = json.dumps(incidents, indent=2, ensure_ascii=False)
+    return StreamingResponse(
+        io.StringIO(data),
+        media_type="application/json",
+        headers={"Content-Disposition": "attachment; filename=AED_Incidents_Report.json"}
+    )
+
+@app.get("/api/export/csv")
+async def export_csv():
+    incidents = db.get_incidents(limit=1000)
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["ID", "Timestamp", "Src_IP", "Dst_Port", "Protocol", "Action", "Forensics"])
+    for inc in incidents:
+        writer.writerow([
+            inc.get("id", ""),
+            inc.get("timestamp", ""),
+            inc.get("src_ip", ""),
+            inc.get("dst_port", ""),
+            inc.get("protocol", ""),
+            inc.get("action", ""),
+            json.dumps(inc.get("forensics", {}), ensure_ascii=False)
+        ])
+    output.seek(0)
+    return StreamingResponse(
+        io.StringIO(output.getvalue()),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=AED_Incidents_Report.csv"}
+    )
+
+@app.websocket("/ws/stream")
+async def websocket_endpoint(websocket: WebSocket):
+    await ws_manager.connect(websocket)
     try:
         while True:
             await websocket.receive_text()
-    except (WebSocketDisconnect, Exception):
-        live_broadcaster.unregister(websocket)
-
-@app.get("/api/incidents")
-async def get_incidents():
-    """Geçmiş adli olayları listeler."""
-    return db.get_all_incidents()
-
-@app.get("/api/containment/blocked")
-async def get_blocked_ips():
-    """Mevcut nftables engelli IP listesini döndürür."""
-    return {"blocked_ips": blocker.get_blocked_ips()}
-
-@app.delete("/api/containment/unblock/{ip}")
-async def unblock_ip_endpoint(ip: str):
-    """Panel üzerinden tetiklenen manuel engel kaldırma rotası."""
-    success = blocker.unblock_ip(ip)
-    if not success:
-        raise HTTPException(status_code=400, detail=f"{ip} adresi nftables listesinden kaldırılamadı.")
-    
-    await live_broadcaster.broadcast_event({
-        "event": "IP_UNBLOCKED",
-        "src_ip": ip,
-        "reason": "Yönetici tarafından manuel kaldırıldı"
-    })
-    return {"status": "success", "message": f"{ip} engeli başarıyla kaldırıldı."}
-
-@app.get("/api/incidents/export")
-async def export_incidents(export_format: str = Query("json")):
-    """Adli olayları CSV veya JSON formatında indirir."""
-    try:
-        incidents = db.get_all_incidents()
-
-        if export_format.lower() == "csv":
-            output = io.StringIO()
-            output.write('\ufeff')  # Excel için UTF-8 BOM etiketi
-
-            if incidents:
-                # Veritabanında mevcut olan tüm alanları otomatik al
-                first_row = dict(incidents[0])
-                fieldnames = list(first_row.keys())
-            else:
-                fieldnames = ["id", "timestamp", "src_ip", "src_port", "dst_ip", "dst_port", "service_type", "action", "forensics"]
-
-            writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction='ignore')
-            writer.writeheader()
-
-            for item in incidents:
-                row = dict(item)
-                for k, v in row.items():
-                    if isinstance(v, (dict, list)):
-                        row[k] = json.dumps(v, ensure_ascii=False)
-                writer.writerow(row)
-
-            return Response(
-                content=output.getvalue(),
-                media_type="text/csv; charset=utf-8",
-                headers={
-                    "Content-Disposition": "attachment; filename=aed_adli_delil_raporu.csv",
-                    "Content-Type": "text/csv; charset=utf-8"
-                }
-            )
-
-        # Varsayılan JSON Dışa Aktarma
-        json_data = json.dumps(incidents, indent=2, ensure_ascii=False)
-        return Response(
-            content=json_data,
-            media_type="application/json; charset=utf-8",
-            headers={"Content-Disposition": "attachment; filename=aed_adli_delil_raporu.json"}
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Dışa aktarma hatası: {str(e)}")
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket)
+    except Exception:
+        ws_manager.disconnect(websocket)
