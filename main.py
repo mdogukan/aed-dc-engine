@@ -8,6 +8,7 @@ import logging
 from core.engine import SecurityEngine
 from traps.service_mock import AsyncDecoyServer
 from traps.ssh_mock import AsyncSSHDecoyServer
+from traps.tarpit import tarpit_engine
 from api.app import app
 from api.ws_manager import live_broadcaster
 
@@ -31,14 +32,17 @@ async def main():
     logging.info("=================================================================")
 
     # 1. Scapy Sniffer iş parçacığını başlat
-    sniffer_thread = threading.Thread(target=run_sniffer_engine, daemon=True)
+    sniffer_thread = threading.Thread(target=run_sniffer_engine, daemon=True, name="Sniffer-Thread")
     sniffer_thread.start()
 
-    # 2. HTTP ve SSH sahte servislerini başlat
+    # 2. TCP Tarpit (Port Tarama Bataklığı) Başlat
+    tarpit_engine.start()
+
+    # 3. HTTP ve SSH sahte servislerini başlat
     http_decoy = AsyncDecoyServer(bind_ip="0.0.0.0", target_decoy="192.168.159.240")
     ssh_decoy = AsyncSSHDecoyServer(bind_ip="192.168.159.240", port=22)
 
-    # 3. Uvicorn web sunucusu konfigürasyonu
+    # 4. Uvicorn web sunucusu konfigürasyonu
     config = uvicorn.Config(app=app, host="0.0.0.0", port=8000, log_level="warning")
     server = uvicorn.Server(config)
 

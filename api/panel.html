@@ -14,11 +14,12 @@
         .table-hover tbody tr:hover { background-color: #1e293b; cursor: pointer; }
         .badge-recon { background-color: #d97706; color: #fff; }
         .badge-isolated { background-color: #ef4444; color: #fff; }
-        .badge-probe { background-color: #2563eb; color: #fff; }
-        .badge-unblocked { background-color: #10b981; color: #fff; }
+        .badge-tarpit { background-color: #a855f7; color: #fff; font-weight: bold; box-shadow: 0 0 10px rgba(168, 85, 247, 0.6); }
+        .badge-mitre { background-color: #4f46e5; color: #fff; font-size: 0.75rem; letter-spacing: 0.5px; }
         .status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background-color: #10b981; margin-right: 8px; box-shadow: 0 0 8px #10b981; }
         .modal-content { background-color: #0f172a; color: #cbd5e1; border: 1px solid #334155; }
         .btn-unblock { font-size: 0.75rem; padding: 2px 8px; font-weight: 600; }
+        .hash-tag { font-family: monospace; font-size: 0.75rem; color: #38bdf8; word-break: break-all; }
     </style>
 </head>
 <body class="p-3">
@@ -28,7 +29,7 @@
         <div>
             <h3 class="fw-bold mb-1 text-white"><i class="bi bi-shield-shaded text-danger me-2"></i>AED-DC Engine</h3>
             <span class="badge bg-dark border border-secondary text-success" id="connBadge">
-                <span class="status-dot"></span>CANLI TELEMETRİ AKTİF — Çekirdek Dinlemede
+                <span class="status-dot"></span>CANLI TELEMETRİ AKTİF — MITRE ATT&CK & TCP Tarpit Devrede
             </span>
         </div>
         <div>
@@ -38,27 +39,28 @@
     </div>
 
     <div class="row g-3">
-        <!-- SOL TABLO: Canlı Olay Akışı -->
+        <!-- SOL TABLO -->
         <div class="col-lg-8">
             <div class="card h-100">
                 <div class="card-header border-bottom border-secondary bg-transparent fw-semibold text-white d-flex justify-content-between align-items-center">
-                    <span><i class="bi bi-activity text-warning me-2"></i>Gerçek Zamanlı Tehdit Akışı (WebSocket)</span>
-                    <span class="text-secondary small">Adli delil için satıra tıklayın</span>
+                    <span><i class="bi bi-activity text-warning me-2"></i>Gerçek Zamanlı Tehdit Akışı</span>
+                    <span class="text-secondary small">Adli delil ve TTP detayı için satıra tıklayın</span>
                 </div>
                 <div class="table-responsive p-2">
                     <table class="table table-dark table-hover align-middle">
                         <thead>
                             <tr class="text-secondary small">
-                                <th>Zaman (Yerel)</th>
+                                <th>Zaman</th>
                                 <th>Saldırgan IP</th>
-                                <th>Hedef Port</th>
+                                <th>Port</th>
                                 <th>Protokol</th>
+                                <th>MITRE ATT&CK</th>
                                 <th>Tuzak / Eylem</th>
                             </tr>
                         </thead>
                         <tbody id="incidentsBody">
                             <tr id="emptyIncidentsRow">
-                                <td colspan="5" class="text-center text-muted py-4 small">Henüz yakalanan bir olay kaydı yok.</td>
+                                <td colspan="6" class="text-center text-muted py-4 small">Henüz yakalanan bir olay kaydı yok.</td>
                             </tr>
                         </tbody>
                     </table>
@@ -66,15 +68,15 @@
             </div>
         </div>
 
-        <!-- SAĞ TABLO: Dinamik nftables Tecrit Listesi -->
+        <!-- SAĞ TABLO -->
         <div class="col-lg-4">
             <div class="card h-100">
                 <div class="card-header border-bottom border-secondary bg-transparent fw-semibold text-white d-flex justify-content-between align-items-center">
                     <div>
-                        <i class="bi bi-slash-circle text-danger me-2"></i>Dinamik nftables Tecrit
+                        <i class="bi bi-slash-circle text-danger me-2"></i>Dinamik Tecrit
                         <span id="blockedCount" class="badge bg-danger ms-2">0</span>
                     </div>
-                    <button class="btn btn-sm btn-outline-warning py-0 px-2" onclick="unblockAll()" title="Çekirdekteki tüm engelleri temizle">
+                    <button class="btn btn-sm btn-outline-warning py-0 px-2" onclick="unblockAll()">
                         <i class="bi bi-arrow-counterclockwise"></i> Tümünü Kaldır
                     </button>
                 </div>
@@ -100,16 +102,25 @@
     </div>
 </div>
 
-<!-- Modal: Adli Delil Detayı -->
+<!-- Modal -->
 <div class="modal fade" id="detailModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header border-secondary">
-                <h5 class="modal-title"><i class="bi bi-fingerprint text-info me-2"></i>Adli Delil Analizi (Forensic JSON)</h5>
+                <h5 class="modal-title"><i class="bi bi-fingerprint text-info me-2"></i>Adli Delil Analizi & Kriptografik Doğrulama</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <pre id="modalForensics" class="bg-dark p-3 text-info rounded font-monospace" style="max-height: 420px; overflow-y: auto;"></pre>
+                <div class="mb-3">
+                    <label class="text-secondary small fw-bold">SHA-256 DELİL ÖZETİ (CHAIN OF CUSTODY):</label>
+                    <div id="modalHash" class="p-2 bg-black rounded hash-tag">-</div>
+                </div>
+                <div class="mb-3">
+                    <label class="text-secondary small fw-bold">MITRE ATT&CK TEKNİK DETAYI:</label>
+                    <div id="modalMitre" class="text-warning font-monospace small">-</div>
+                </div>
+                <label class="text-secondary small fw-bold">HAM ADLİ TELEMETRİ (FORENSIC JSON):</label>
+                <pre id="modalForensics" class="bg-dark p-3 text-info rounded font-monospace" style="max-height: 350px; overflow-y: auto;"></pre>
             </div>
         </div>
     </div>
@@ -122,16 +133,17 @@
     const blockedCount = document.getElementById("blockedCount");
     const detailModal = new bootstrap.Modal(document.getElementById('detailModal'));
     const modalForensics = document.getElementById('modalForensics');
+    const modalHash = document.getElementById('modalHash');
+    const modalMitre = document.getElementById('modalMitre');
 
     let activeBlockedIps = new Set();
-    let knownIncidentKeys = new Set();
+    let knownEventSignatures = new Set();
 
     function getBadgeClass(action) {
         if (!action) return 'bg-secondary';
+        if (action.includes('TARPIT')) return 'badge-tarpit';
         if (action.includes('ISOLATED')) return 'badge-isolated';
         if (action.includes('RECON')) return 'badge-recon';
-        if (action.includes('PROBE')) return 'badge-probe';
-        if (action.includes('UNBLOCKED')) return 'badge-unblocked';
         return 'bg-secondary';
     }
 
@@ -143,7 +155,18 @@
         if (port === 0 || action.includes('RECON') || action.includes('PING') || rawProto === 'ICMP') return 'ICMP';
         if (port === 80 || port === 8080 || action.includes('HTTP') || rawProto === 'HTTP') return 'HTTP';
         if (port === 22 || action.includes('SSH') || rawProto === 'SSH') return 'SSH';
+        if (port === 8888 || action.includes('TARPIT')) return 'TCP (Tarpit)';
         return rawProto || 'TCP';
+    }
+
+    function resolveMitreBadge(item) {
+        if (item.mitre_technique) return item.mitre_technique.split(' ')[0];
+        const port = Number(item.dst_port || item.port || 0);
+        if (port === 8888 || (item.action && item.action.includes('TARPIT'))) return 'T1499';
+        if (port === 0) return 'T1595.001';
+        if (port === 80) return 'T1083';
+        if (port === 22) return 'T1046';
+        return 'T1595';
     }
 
     function formatLocalTime(isoStr) {
@@ -158,9 +181,12 @@
         }
     }
 
-    function generateKey(item) {
-        if (item.id) return `id_${item.id}`;
-        return `event_${item.timestamp}_${item.src_ip || item.ip}_${item.dst_port || item.port}_${item.action || item.event}`;
+    function getEventSignature(item) {
+        const ts = formatLocalTime(item.timestamp);
+        const ip = item.src_ip || item.ip || '-';
+        const port = Number(item.dst_port || item.port || 0);
+        const action = item.action || item.event || 'LOG';
+        return `${ts}_${ip}_${port}_${action}`;
     }
 
     function createIncidentRow(item) {
@@ -168,17 +194,21 @@
         const timeStr = formatLocalTime(item.timestamp);
         const actionStr = item.action || item.event || 'LOG';
         const srcIp = item.src_ip || item.ip || '-';
-        const port = item.dst_port || item.port || 0;
+        const port = Number(item.dst_port || item.port || 0);
         const proto = resolveProtocol(item);
+        const mitreCode = resolveMitreBadge(item);
 
         tr.innerHTML = `
             <td class="text-info font-monospace">${timeStr}</td>
             <td class="text-danger fw-semibold font-monospace">${srcIp}</td>
             <td class="font-monospace">${port}</td>
             <td class="fw-semibold">${proto}</td>
+            <td><span class="badge badge-mitre"><i class="bi bi-tag-fill me-1"></i>${mitreCode}</span></td>
             <td><span class="badge ${getBadgeClass(actionStr)}">${actionStr}</span></td>
         `;
         tr.onclick = () => {
+            modalHash.textContent = item.forensic_hash || "SHA-256 Özeti Mevcut";
+            modalMitre.textContent = (item.mitre_tactic ? `${item.mitre_tactic} -> ` : '') + (item.mitre_technique || mitreCode);
             modalForensics.textContent = JSON.stringify(item.forensics || {}, null, 2);
             detailModal.show();
         };
@@ -186,9 +216,9 @@
     }
 
     function addIncidentToTop(item) {
-        const key = generateKey(item);
-        if (knownIncidentKeys.has(key)) return;
-        knownIncidentKeys.add(key);
+        const sig = getEventSignature(item);
+        if (knownEventSignatures.has(sig)) return;
+        knownEventSignatures.add(sig);
 
         const emptyRow = document.getElementById("emptyIncidentsRow");
         if (emptyRow) emptyRow.remove();
@@ -210,9 +240,7 @@
                     addIncidentToTop(item);
                 });
             }
-        } catch (e) {
-            console.error("Olay listesi güncellenemedi:", e);
-        }
+        } catch (e) {}
     }
 
     function updateBlockedTable(detailsList) {
@@ -243,7 +271,6 @@
             if (!tr) {
                 tr = document.createElement("tr");
                 tr.id = rowId;
-                tr.setAttribute("data-ip", item.ip);
                 tr.innerHTML = `
                     <td class="text-danger fw-semibold font-monospace">${item.ip}</td>
                     <td><span class="badge bg-danger">DROP</span></td>
@@ -264,49 +291,17 @@
     }
 
     async function unblockIP(ip, btnElement) {
-        if (btnElement) {
-            btnElement.disabled = true;
-            btnElement.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span>';
-        }
+        if (btnElement) btnElement.disabled = true;
         try {
-            const res = await fetch(`/api/unblock/${encodeURIComponent(ip)}`, { method: 'POST' });
-            if (res.ok) {
-                const rowId = `blocked-${ip.replace(/\./g, '-')}`;
-                const row = document.getElementById(rowId);
-                if (row) row.remove();
-                activeBlockedIps.delete(ip);
-                blockedCount.textContent = activeBlockedIps.size;
-                if (activeBlockedIps.size === 0) {
-                    blockedBody.innerHTML = `<tr id="emptyBlockedRow"><td colspan="4" class="text-center text-muted py-4 small">Çekirdekte aktif tecrit bulunmuyor.</td></tr>`;
-                }
-            } else {
-                alert("Engel kaldırılamadı!");
-                if (btnElement) {
-                    btnElement.disabled = false;
-                    btnElement.innerHTML = '<i class="bi bi-shield-x"></i> Kaldır';
-                }
-            }
-        } catch (err) {
-            console.error("Engel kaldırma hatası:", err);
-            if (btnElement) {
-                btnElement.disabled = false;
-                btnElement.innerHTML = '<i class="bi bi-shield-x"></i> Kaldır';
-            }
-        }
+            await fetch(`/api/unblock/${encodeURIComponent(ip)}`, { method: 'POST' });
+            syncBlockedList();
+        } catch (e) {}
     }
 
     async function unblockAll() {
-        if (!confirm("Çekirdekteki tüm IP tecritlerini kaldırmak istediğinize emin misiniz?")) return;
-        try {
-            const res = await fetch('/api/unblock-all', { method: 'POST' });
-            if (res.ok) {
-                blockedBody.innerHTML = `<tr id="emptyBlockedRow"><td colspan="4" class="text-center text-muted py-4 small">Çekirdekte aktif tecrit bulunmuyor.</td></tr>`;
-                activeBlockedIps.clear();
-                blockedCount.textContent = "0";
-            }
-        } catch (err) {
-            console.error("Toplu temizleme hatası:", err);
-        }
+        if (!confirm("Tüm engeller kaldırılsın mı?")) return;
+        await fetch('/api/unblock-all', { method: 'POST' });
+        syncBlockedList();
     }
 
     async function syncBlockedList() {
@@ -314,9 +309,7 @@
             const res = await fetch('/api/blocked-ips');
             const data = await res.json();
             updateBlockedTable(data.details || []);
-        } catch (e) {
-            console.error("Tecrit senkronizasyon hatası:", e);
-        }
+        } catch (e) {}
     }
 
     function initWebSocket() {
@@ -324,47 +317,26 @@
         const ws = new WebSocket(`${protocol}//${window.location.host}/ws/stream`);
 
         ws.onopen = () => {
-            document.getElementById("connBadge").innerHTML = '<span class="status-dot"></span>CANLI TELEMETRİ AKTİF — Çekirdek Dinlemede';
+            document.getElementById("connBadge").innerHTML = '<span class="status-dot"></span>CANLI TELEMETRİ AKTİF — MITRE ATT&CK & TCP Tarpit Devrede';
         };
 
         ws.onmessage = (event) => {
             try {
                 const msg = JSON.parse(event.data);
                 const ip = msg.src_ip || msg.ip || (msg.data && (msg.data.src_ip || msg.data.ip));
-                const action = msg.action || msg.event || msg.type || (msg.data && (msg.data.action || msg.data.event));
+                const action = msg.action || msg.event || (msg.data && (msg.data.action || msg.data.event));
 
                 if (ip && action && !action.includes('UNBLOCKED')) {
                     addIncidentToTop(msg);
                 }
-
                 if (action && (action.includes('ISOLATED') || action.includes('BLOCK') || action.includes('DROP'))) {
                     syncBlockedList();
                 }
-
-                if (msg.event === 'IP_UNBLOCKED' || action === 'UNBLOCKED') {
-                    const targetIp = msg.src_ip || msg.ip || ip;
-                    const rowId = `blocked-${targetIp.replace(/\./g, '-')}`;
-                    const row = document.getElementById(rowId);
-                    if (row) row.remove();
-                    activeBlockedIps.delete(targetIp);
-                    blockedCount.textContent = activeBlockedIps.size;
-                    if (activeBlockedIps.size === 0) {
-                        blockedBody.innerHTML = `<tr id="emptyBlockedRow"><td colspan="4" class="text-center text-muted py-4 small">Çekirdekte aktif tecrit bulunmuyor.</td></tr>`;
-                    }
-                }
-
-                if (msg.event === 'ALL_UNBLOCKED' || action === 'ALL_UNBLOCKED') {
-                    blockedBody.innerHTML = `<tr id="emptyBlockedRow"><td colspan="4" class="text-center text-muted py-4 small">Çekirdekte aktif tecrit bulunmuyor.</td></tr>`;
-                    activeBlockedIps.clear();
-                    blockedCount.textContent = "0";
-                }
-            } catch (err) {
-                console.error("Telemetri ayrıştırma hatası:", err);
-            }
+            } catch (err) {}
         };
 
         ws.onclose = () => {
-            document.getElementById("connBadge").innerHTML = '<span class="status-dot" style="background-color: #ef4444; box-shadow: 0 0 8px #ef4444;"></span>BAĞLANTI KESİLDİ — Yeniden Bağlanıyor...';
+            document.getElementById("connBadge").innerHTML = '<span class="status-dot" style="background-color: #ef4444;"></span>Yeniden Bağlanıyor...';
             setTimeout(initWebSocket, 2000);
         };
     }
@@ -373,7 +345,6 @@
     syncBlockedList();
     initWebSocket();
     setInterval(syncBlockedList, 2500);
-    setInterval(syncIncidents, 3000);
 </script>
 </body>
 </html>

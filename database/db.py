@@ -3,6 +3,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
+from core.attck_engine import attck_engine
 
 logger = logging.getLogger("AED-DC.Database")
 
@@ -34,7 +35,10 @@ class IncidentDatabase:
                     dst_port INTEGER DEFAULT 0,
                     protocol TEXT DEFAULT 'TCP',
                     action TEXT DEFAULT 'LOG',
-                    forensics TEXT DEFAULT '{}'
+                    forensics TEXT DEFAULT '{}',
+                    mitre_technique TEXT DEFAULT 'T1595',
+                    mitre_tactic TEXT DEFAULT 'Reconnaissance',
+                    forensic_hash TEXT DEFAULT ''
                 )
             """)
             conn.commit()
@@ -49,7 +53,10 @@ class IncidentDatabase:
                 "dst_port": "INTEGER DEFAULT 0",
                 "protocol": "TEXT DEFAULT 'TCP'",
                 "action": "TEXT DEFAULT 'LOG'",
-                "forensics": "TEXT DEFAULT '{}'"
+                "forensics": "TEXT DEFAULT '{}'",
+                "mitre_technique": "TEXT DEFAULT 'T1595'",
+                "mitre_tactic": "TEXT DEFAULT 'Reconnaissance'",
+                "forensic_hash": "TEXT DEFAULT ''"
             }
             for col, col_def in needed_cols.items():
                 if col not in existing_cols:
@@ -66,7 +73,6 @@ class IncidentDatabase:
         dst_ip = kwargs.get("dst_ip", kwargs.get("target_ip", "192.168.159.240"))
         dst_port = kwargs.get("dst_port", args[1] if len(args) > 1 else kwargs.get("port", 0))
         
-        # protocol ve service_type belirleme
         raw_proto = kwargs.get("protocol", args[2] if len(args) > 2 else kwargs.get("proto", kwargs.get("service_type", "TCP")))
         action = kwargs.get("action", args[3] if len(args) > 3 else kwargs.get("event", "LOG"))
         forensics = kwargs.get("forensics", args[4] if len(args) > 4 else {})
@@ -84,8 +90,16 @@ class IncidentDatabase:
 
         service_type_val = kwargs.get("service_type", proto_val)
 
+        # 1. MITRE ATT&CK TTP Eşleme
+        tactic, tech_id, tech_name = attck_engine.resolve_mitre_ttp(port_num, proto_val, str(action), forensics)
+
         ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
         forensics_str = json.dumps(forensics or {}, ensure_ascii=False)
+
+        # 2. SHA-256 Adli Delil Zinciri Özeti
+        forensic_hash, prev_hash = attck_engine.generate_chain_of_custody_hash(
+            ts, str(src_ip), port_num, proto_val, str(action), forensics_str
+        )
 
         conn = self._get_connection()
         try:
@@ -93,7 +107,6 @@ class IncidentDatabase:
             cursor.execute("PRAGMA table_info(incidents)")
             cols_in_db = [row[1] for row in cursor.fetchall()]
 
-            # service_type ve protocol aynı anda doldurulur
             data = {
                 "timestamp": ts,
                 "src_ip": str(src_ip),
@@ -103,7 +116,10 @@ class IncidentDatabase:
                 "dst_port": int(dst_port or 0),
                 "protocol": str(proto_val),
                 "action": str(action or "LOG"),
-                "forensics": forensics_str
+                "forensics": forensics_str,
+                "mitre_technique": f"{tech_id} ({tech_name})",
+                "mitre_tactic": tactic,
+                "forensic_hash": forensic_hash
             }
 
             active_cols = [c for c in data if c in cols_in_db]
