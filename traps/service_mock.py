@@ -10,7 +10,10 @@ from api.ws_manager import ws_manager
 
 logger = logging.getLogger("AED-DC.Traps")
 
-FAKE_ENV_RESPONSE = """# Production Environment Secrets
+CANARY_TOKEN_KEY = "CANARY_KEY_corp_vault_9921"
+CANARY_ENDPOINT = "/api/v1/vault-auth"
+
+FAKE_ENV_RESPONSE = f"""# Production Environment Secrets
 APP_NAME=Enterprise-Core-API
 APP_ENV=production
 APP_KEY=base64:dGVzdGtleWZvcmF1dG9ub21vdXNjeWJlcmRlY2VwdGlvbg==
@@ -24,13 +27,15 @@ DB_PASSWORD=V4ult#Master@2026!Key
 AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
 AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
 JWT_SECRET=super_secret_signing_token_9921_xae
+CANARY_AUTH_TOKEN={CANARY_TOKEN_KEY}
+CANARY_VERIFY_URL=http://192.168.159.240{CANARY_ENDPOINT}
 """
 
 class DecoyHTTPHandler(BaseHTTPRequestHandler):
     blocker = NftablesContainment()
 
     def log_message(self, format, *args):
-        pass  # Standart konsol log kirliliğini önle
+        pass
 
     def do_GET(self):
         self._handle_attack()
@@ -48,36 +53,65 @@ class DecoyHTTPHandler(BaseHTTPRequestHandler):
         headers_dump = dict(self.headers)
         now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
-        logger.warning(f"[YEM SERVİSİ ETKİLEŞİMİ] Saldırgan IP: {client_ip} | İstek: {req_path}")
+        # Saldırgan çalınan yemi (Canary Token) kullandı mı kontrolü
+        is_canary_used = (
+            CANARY_ENDPOINT in req_path
+            or CANARY_TOKEN_KEY in req_path
+            or any(CANARY_TOKEN_KEY in str(v) for v in headers_dump.values())
+        )
 
-        forensics = {
-            "requested_path": req_path,
-            "method": self.command,
-            "user_agent": user_agent,
-            "headers": headers_dump,
-            "trigger": "HIGH_INTERACTION_DECOY_ENV_TRAP",
-            "honey_token": "AWS_ACCESS_KEY_ID & DB_PASSWORD"
-        }
+        if is_canary_used:
+            action_event = "CANARY_TOKEN_TRIGGERED"
+            logger.critical(f"[CANARY ALARMI] Çalınan Zehirli Yem Kullanıldı! IP: {client_ip} | İstek: {req_path}")
+            forensics = {
+                "requested_path": req_path,
+                "method": self.command,
+                "user_agent": user_agent,
+                "headers": headers_dump,
+                "trigger": "CANARY_HONEYTOKEN_MISUSE",
+                "canary_token": CANARY_TOKEN_KEY,
+                "threat_level": "CRITICAL"
+            }
+            response_body = json.dumps({
+                "status": "error",
+                "code": 401,
+                "message": "Invalid token session or unauthorized access."
+            }).encode("utf-8")
+            content_type = "application/json"
+        else:
+            action_event = "INTERACTED_AND_ISOLATED"
+            logger.warning(f"[YEM SERVİSİ ETKİLEŞİMİ] Saldırgan IP: {client_ip} | İstek: {req_path}")
+            forensics = {
+                "requested_path": req_path,
+                "method": self.command,
+                "user_agent": user_agent,
+                "headers": headers_dump,
+                "trigger": "HIGH_INTERACTION_DECOY_ENV_TRAP",
+                "honey_token": "AWS_ACCESS_KEY_ID & DB_PASSWORD & CANARY_AUTH_TOKEN"
+            }
+            response_body = FAKE_ENV_RESPONSE.encode("utf-8")
+            content_type = "text/plain; charset=utf-8"
 
-        # 1. SQLite Adli Kayıt
+        # 1. SQLite Adli Kayıt (SHA-256 zinciriyle mühürlenir)
         try:
             db.log_incident(
                 src_ip=client_ip,
                 dst_port=80,
                 protocol="HTTP",
-                action="INTERACTED_AND_ISOLATED",
+                action=action_event,
                 forensics=forensics
             )
         except Exception as e:
             logger.error(f"Veritabanı yazma hatası: {e}")
 
-        # 2. Çekirdek Seviyesinde Tecrit (1 Saat)
+        # 2. Çekirdek Seviyesinde Tecrit (Canary için 2 Saat, normal için 1 Saat)
+        isolation_time = 7200 if is_canary_used else 3600
         try:
-            self.blocker.isolate_ip(client_ip, timeout_seconds=3600)
+            self.blocker.isolate_ip(client_ip, timeout_seconds=isolation_time)
         except Exception as e:
             logger.error(f"Tecrit motoru hatası: {e}")
 
-        # 3. Sol Tabloya Anında Canlı WebSocket Yayını Fırlat
+        # 3. Canlı WebSocket Yayını
         payload = {
             "timestamp": now_str,
             "src_ip": client_ip,
@@ -85,8 +119,8 @@ class DecoyHTTPHandler(BaseHTTPRequestHandler):
             "dst_port": 80,
             "port": 80,
             "protocol": "HTTP",
-            "action": "INTERACTED_AND_ISOLATED",
-            "event": "INTERACTED_AND_ISOLATED",
+            "action": action_event,
+            "event": action_event,
             "forensics": forensics
         }
         try:
@@ -94,15 +128,14 @@ class DecoyHTTPHandler(BaseHTTPRequestHandler):
         except Exception as e:
             logger.error(f"WebSocket yayın hatası: {e}")
 
-        # 4. Saldırgana Sahte İçeriği Dön
+        # 4. Yanıtı İstemciye İlet
         try:
-            body = FAKE_ENV_RESPONSE.encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
+            self.send_response(401 if is_canary_used else 200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(response_body)))
             self.send_header("Server", "nginx/1.18.0 (Ubuntu)")
             self.end_headers()
-            self.wfile.write(body)
+            self.wfile.write(response_body)
         except Exception:
             pass
 
@@ -142,7 +175,6 @@ class AsyncDecoyServer:
             logger.error(f"HTTP Dinleme Hatası ({self.host}:{self.port}): {e}")
 
     async def start(self):
-        """main.py içerisindeki asyncio.gather() ile tam uyumlu asenkron coroutine."""
         if not self.thread or not self.thread.is_alive():
             self.thread = threading.Thread(target=self._run_server, daemon=True)
             self.thread.start()

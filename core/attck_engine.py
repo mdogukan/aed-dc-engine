@@ -21,7 +21,15 @@ class AttckForensicEngine:
         port = int(dst_port or 0)
         forensics = forensics or {}
 
-        # 1. Tarpit Bataklık Eylemi
+        # 1. Zehirli Yem (Canary Honeytoken) Tetiklenmesi
+        if "CANARY" in act:
+            return (
+                "TA0001: Initial Access",
+                "T1078",
+                "Valid Accounts: Canary Token Misuse"
+            )
+
+        # 2. Tarpit Bataklık Eylemi
         if "TARPIT" in act or port == 8888:
             return (
                 "TA0040: Impact",
@@ -29,7 +37,7 @@ class AttckForensicEngine:
                 "Endpoint DoS: Resource Exhaustion"
             )
 
-        # 2. ICMP Taraması
+        # 3. ICMP Taraması
         if port == 0 or "ICMP" in proto or "RECON" in act or "PING" in act:
             return (
                 "TA0043: Reconnaissance",
@@ -37,7 +45,7 @@ class AttckForensicEngine:
                 "Active Scanning: Scanning IP Blocks"
             )
 
-        # 3. HTTP Web Tuzağı
+        # 4. HTTP Web Tuzağı
         if port in (80, 8080) or "HTTP" in proto:
             return (
                 "TA0007: Discovery",
@@ -45,7 +53,7 @@ class AttckForensicEngine:
                 "File and Directory Discovery"
             )
 
-        # 4. SSH Tuzağı
+        # 5. SSH Tuzağı
         if port in (22, 2222) or "SSH" in proto:
             return (
                 "TA0007: Discovery",

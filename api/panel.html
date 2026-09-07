@@ -15,6 +15,7 @@
         .badge-recon { background-color: #d97706; color: #fff; }
         .badge-isolated { background-color: #ef4444; color: #fff; }
         .badge-tarpit { background-color: #a855f7; color: #fff; font-weight: bold; box-shadow: 0 0 10px rgba(168, 85, 247, 0.6); }
+        .badge-canary { background-color: #f59e0b; color: #000; font-weight: bold; box-shadow: 0 0 10px rgba(245, 158, 11, 0.7); }
         .badge-mitre { background-color: #4f46e5; color: #fff; font-size: 0.75rem; letter-spacing: 0.5px; }
         .status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background-color: #10b981; margin-right: 8px; box-shadow: 0 0 8px #10b981; }
         .modal-content { background-color: #0f172a; color: #cbd5e1; border: 1px solid #334155; }
@@ -141,6 +142,7 @@
 
     function getBadgeClass(action) {
         if (!action) return 'bg-secondary';
+        if (action.includes('CANARY')) return 'badge-canary';
         if (action.includes('TARPIT')) return 'badge-tarpit';
         if (action.includes('ISOLATED')) return 'badge-isolated';
         if (action.includes('RECON')) return 'badge-recon';
