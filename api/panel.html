@@ -162,6 +162,41 @@
     }
 
     function resolveMitreBadge(item) {
+        if (item.mitre_id) return item.mitre_id;
+        if (item.mitre_technique_id) return item.mitre_technique_id;
+
+        const act = (item.action || item.event || '').toUpperCase();
+        const f = item.forensics || {};
+        const trigger = (f.trigger || '').toUpperCase();
+        const user = f.attempted_user;
+        const proto = (item.protocol || '').toUpperCase();
+        const port = Number(item.dst_port || item.port || 0);
+
+        // 1. Canary Tuzağı (Protokolden bağımsız)
+        if (act.includes('CANARY') || trigger.includes('CANARY')) return 'T1078';
+        
+        // 2. Tarpit DoS Tuzağı
+        if (act.includes('TARPIT') || trigger.includes('TARPIT') || port === 8888) return 'T1499';
+        
+        // 3. SSH Parola / Kullanıcı Denemesi (Brute Force)
+        if (trigger.includes('BRUTE') || (user && user !== 'Bilinmiyor' && user !== 'None')) return 'T1110';
+        
+        // 4. SSH Servis Keşfi (Sadece port/banner taraması)
+        if (port === 22 || proto === 'SSH') return 'T1046';
+        
+        // 5. HTTP Dizin / Dosya Keşfi (.env vb.)
+        if (port === 80 || port === 8080 || proto === 'HTTP') return 'T1083';
+        
+        // 6. Ağ Keşfi / Ping Taraması
+        if (port === 0 || proto === 'ICMP' || act.includes('PING')) return 'T1595.001';
+        
+        // 7. Port / Zafiyet Taraması
+        return 'T1595.002';
+    }
+
+    function _disabled_old_mitre(item) {
+        const act = (item.action || item.event || '').toUpperCase();
+        if (act.includes('CANARY')) return 'T1078';
         if (item.mitre_technique) return item.mitre_technique.split(' ')[0];
         const port = Number(item.dst_port || item.port || 0);
         if (port === 8888 || (item.action && item.action.includes('TARPIT'))) return 'T1499';

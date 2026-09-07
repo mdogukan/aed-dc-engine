@@ -1,3 +1,4 @@
+from core.attck_engine import attck_engine
 import asyncio
 import threading
 import logging
@@ -112,8 +113,11 @@ class DecoyHTTPHandler(BaseHTTPRequestHandler):
             logger.error(f"Tecrit motoru hatası: {e}")
 
         # 3. Canlı WebSocket Yayını
+        _, mitre_id, mitre_desc = attck_engine.resolve_mitre_ttp(80, "HTTP", action_event, forensics)
         payload = {
             "timestamp": now_str,
+            "mitre_id": mitre_id,
+            "mitre_technique": mitre_desc,
             "src_ip": client_ip,
             "ip": client_ip,
             "dst_port": 80,
