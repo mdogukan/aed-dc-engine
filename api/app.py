@@ -104,3 +104,11 @@ async def websocket_endpoint(websocket: WebSocket):
         ws_manager.disconnect(websocket)
     except Exception:
         ws_manager.disconnect(websocket)
+
+
+from core.forensic_exporter import forensic_cert_engine
+
+@app.get("/api/v1/forensics/certificate")
+async def get_forensic_certificate():
+    """Kriptografik SHA-256 Adli Bütünlük Sertifikası üretir."""
+    return forensic_cert_engine.generate_certificate()
