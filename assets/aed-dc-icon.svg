@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0b0f19" />
+      <stop offset="50%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#020617" />
+    </linearGradient>
+    <linearGradient id="neonCyan" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="50%" stop-color="#06b6d4" />
+      <stop offset="100%" stop-color="#0284c7" />
+    </linearGradient>
+    <linearGradient id="emeraldShield" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981" />
+      <stop offset="100%" stop-color="#059669" />
+    </linearGradient>
+  </defs>
+
+  <!-- Arka Plan Kartı (Karanlık Siber Tema & Yuvarlatılmış Köşeler) -->
+  <rect x="20" y="20" width="472" height="472" rx="100" fill="url(#bgGrad)" stroke="#1e293b" stroke-width="8" />
+  
+  <!-- Siber Devre / Grid Çizgileri -->
+  <path d="M 80 256 L 160 256 M 352 256 L 432 256 M 256 80 L 256 130" stroke="#0369a1" stroke-width="4" stroke-linecap="round" opacity="0.4" />
+  <circle cx="80" cy="256" r="6" fill="#38bdf8" opacity="0.6" />
+  <circle cx="432" cy="256" r="6" fill="#38bdf8" opacity="0.6" />
+  <circle cx="256" cy="80" r="6" fill="#38bdf8" opacity="0.6" />
+
+  <!-- Dış Savunma Kalkanı -->
+  <path d="M 256 90 L 380 135 C 380 255 325 365 256 422 C 187 365 132 255 132 135 Z" 
+        fill="#082f49" fill-opacity="0.35" stroke="url(#neonCyan)" stroke-width="16" stroke-linejoin="round" />
+
+  <!-- İç Adli Kalkan (Yeşil Bütünlük Katmanı) -->
+  <path d="M 256 125 L 350 160 C 350 250 305 335 256 385 C 207 335 162 250 162 160 Z" 
+        fill="none" stroke="url(#emeraldShield)" stroke-width="6" stroke-dasharray="10 6" stroke-linejoin="round" opacity="0.8" />
+
+  <!-- Merkez Kriptografik Kilit Gövdesi (SHA-256 Mührü Temsili) -->
+  <rect x="216" y="240" width="80" height="65" rx="14" fill="url(#neonCyan)" />
+  <!-- Kilit Kemeri -->
+  <path d="M 228 240 L 228 205 C 228 185 240 172 256 172 C 272 172 284 185 284 205 L 284 240" 
+        fill="none" stroke="#e0f2fe" stroke-width="14" stroke-linecap="round" stroke-linejoin="round" />
+  <!-- Anahtar Yuvası -->
+  <circle cx="256" cy="268" r="6" fill="#0369a1" />
+  <path d="M 256 274 L 256 288" stroke="#0369a1" stroke-width="5" stroke-linecap="round" />
+
+  <!-- Alt Metin (AED-DC) -->
+  <text x="256" y="468" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-size="34" font-weight="900" fill="#38bdf8" letter-spacing="6">AED-DC</text>
+</svg>
