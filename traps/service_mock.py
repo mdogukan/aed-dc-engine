@@ -54,12 +54,15 @@ class DecoyHTTPHandler(BaseHTTPRequestHandler):
         headers_dump = dict(self.headers)
         now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
-        # Saldırgan çalınan yemi (Canary Token) kullandı mı kontrolü
+        # 1. Kontrol: Saldırgan çalınan yemi (Canary Token) kullandı mı?
         is_canary_used = (
             CANARY_ENDPOINT in req_path
             or CANARY_TOKEN_KEY in req_path
             or any(CANARY_TOKEN_KEY in str(v) for v in headers_dump.values())
         )
+
+        # 2. Kontrol: Saldırgan AWS meta-veri servisini tarıyor mu?
+        is_aws_metadata = "meta-data" in req_path.lower()
 
         if is_canary_used:
             action_event = "CANARY_TOKEN_TRIGGERED"
@@ -79,6 +82,31 @@ class DecoyHTTPHandler(BaseHTTPRequestHandler):
                 "message": "Invalid token session or unauthorized access."
             }).encode("utf-8")
             content_type = "application/json"
+
+        elif is_aws_metadata:
+            action_event = "CLOUD_METADATA_HARVESTING"
+            logger.warning(f"[AWS YEM TUZAĞI] Bulut Meta-Veri Keşfi Tespit Edildi! IP: {client_ip} | İstek: {req_path}")
+            forensics = {
+                "requested_path": req_path,
+                "method": self.command,
+                "user_agent": user_agent,
+                "headers": headers_dump,
+                "trigger": "CLOUD_METADATA_API_PROBE",
+                "honey_token": "AWS_IAM_CREDENTIALS_LEAK",
+                "threat_level": "HIGH"
+            }
+            aws_fake_creds = {
+                "Code": "Success",
+                "LastUpdated": "2026-09-08T12:00:00Z",
+                "Type": "AWS-HMAC",
+                "AccessKeyId": "AKIAIOSFODNN7EXAMPLE",
+                "SecretAccessKey": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+                "Token": "CANARY_TOKEN_AWS_INTERNAL_ROLE_corp_cloud_admin",
+                "Expiration": "2026-09-08T18:00:00Z"
+            }
+            response_body = json.dumps(aws_fake_creds, indent=2).encode("utf-8")
+            content_type = "application/json"
+
         else:
             action_event = "INTERACTED_AND_ISOLATED"
             logger.warning(f"[YEM SERVİSİ ETKİLEŞİMİ] Saldırgan IP: {client_ip} | İstek: {req_path}")
@@ -105,7 +133,7 @@ class DecoyHTTPHandler(BaseHTTPRequestHandler):
         except Exception as e:
             logger.error(f"Veritabanı yazma hatası: {e}")
 
-        # 2. Çekirdek Seviyesinde Tecrit (Canary için 2 Saat, normal için 1 Saat)
+        # 2. Çekirdek Seviyesinde Tecrit (Canary için 2 Saat, diğerleri için 1 Saat)
         isolation_time = 7200 if is_canary_used else 3600
         try:
             self.blocker.isolate_ip(client_ip, timeout_seconds=isolation_time)
