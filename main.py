@@ -9,6 +9,7 @@ from core.engine import SecurityEngine
 from traps.service_mock import AsyncDecoyServer
 from traps.ssh_mock import AsyncSSHDecoyServer
 from traps.tarpit import tarpit_engine
+from traps.llmnr_baiter import llmnr_hunter
 from api.app import app
 from api.ws_manager import live_broadcaster
 
@@ -37,6 +38,9 @@ async def main():
 
     # 2. TCP Tarpit (Port Tarama Bataklığı) Başlat
     tarpit_engine.start()
+
+    # 2.1 Proaktif LLMNR/mDNS Zehirleyici Avcısı Başlat
+    llmnr_hunter.start()
 
     # 3. HTTP ve SSH sahte servislerini başlat
     http_decoy = AsyncDecoyServer(bind_ip="0.0.0.0", target_decoy="192.168.159.240")
